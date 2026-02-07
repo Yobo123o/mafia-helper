@@ -246,7 +246,7 @@ function RoleReferenceList({ abilities }: { abilities: RoleAbility[] }) {
 }
 
 function RoleDescription({ text, abilities }: { text: string; abilities: RoleAbility[] }) {
-  const normalizedText = text.replace(/`\[([^\]]+)\]`/g, "[$1]");
+  const normalizedText = text.replace(/`[[]([^]]+)[]]`/g, "[$1]");
   const abilityLookup = new Map(
     abilities.map((ability) => [ability.name.toLowerCase(), ability] as const)
   );
@@ -290,7 +290,7 @@ function RoleDescription({ text, abilities }: { text: string; abilities: RoleAbi
   }
 
   const nodes: ReactNode[] = [];
-  const bracketPattern = /\[([^\]]+)\]/g;
+  const bracketPattern = /[[]([^]]+)[]]/g;
   let cursor = 0;
   let bracketIndex = 0;
   let match = bracketPattern.exec(normalizedText);

@@ -331,7 +331,7 @@ export function getRoleAlignment(role: RoleType): Alignment {
   return ROLE_DEFINITIONS[role].alignment;
 }
 
-const BRACKET_REFERENCE_PATTERN = /\[([^\]]+)\]/g;
+const BRACKET_REFERENCE_PATTERN = /[[]([^]]+)[]]/g;
 
 function extractBracketedReferences(text: string): string[] {
   const matches = text.matchAll(BRACKET_REFERENCE_PATTERN);
