@@ -74,7 +74,7 @@ export type NightAction = {
   actorId?: string;
   targetIds: string[];
   metadata?: {
-    choice?: "kill" | "save";
+    choice?: "kill" | "save" | "none";
   };
 };
 
@@ -89,5 +89,8 @@ export type NightResult = {
   saves: string[];
   blocked: RoleType[];
   investigations: InvestigationResult[];
+  dayImmunities?: string[];
+  recruits?: string[];
+  loverPairsCreated?: string[];
   notes: string[];
 };

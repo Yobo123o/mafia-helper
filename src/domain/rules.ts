@@ -101,7 +101,7 @@ export function validateAction(
   if (role === "Magician") {
     const choice = metadata?.choice;
     if (!choice) {
-      return { valid: false, reason: "Magician must choose kill or save." };
+      return { valid: false, reason: "Magician must choose kill, save, or no action." };
     }
     if (choice === "kill" && states.Magician.usedKill) {
       return { valid: false, reason: "Magician already used their kill." };

@@ -26,18 +26,20 @@ import {
 import { buildWakeOrder } from "@/domain/rules";
 import { ROLE_DEFINITIONS, ROLE_TYPES, type RoleAbility } from "@/domain/roles";
 import type { Alignment, RoleType } from "@/domain/types";
+import {
+  clearSession,
+  createNightActions,
+  createRoleAssignments,
+  loadSession,
+  saveSession,
+  type PlayerEntry,
+  type SessionState,
+} from "@/lib/session";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -133,8 +135,6 @@ const ROLE_ICONS: Record<RoleType, IconType> = {
   RivalMafia: GiKingJuMask,
 };
 
-type PlayerEntry = { id: string; name: string };
-
 function roleLabel(role: RoleType): string {
   return role.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
@@ -220,7 +220,7 @@ function RoleReferenceList({ abilities }: { abilities: RoleAbility[] }) {
         const activationLabel =
           ability.activation.type === "Passive"
             ? "Passive"
-            : `${ability.activation.phase} Â· ${ability.activation.type}`;
+            : `${ability.activation.phase} · ${ability.activation.type}`;
         return (
           <div key={ability.name} className="space-y-1.5 rounded-md border border-border/60 bg-background/30 p-2">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -328,6 +328,7 @@ function RoleDescription({ text, abilities }: { text: string; abilities: RoleAbi
 }
 
 export default function Home() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("players");
   const [expandedAlignments, setExpandedAlignments] = useState<string[]>([]);
   const [darkMode, setDarkMode] = useState(() => {
@@ -335,12 +336,13 @@ export default function Home() {
     return localStorage.getItem("theme") !== "light";
   });
   const [players, setPlayers] = useState<PlayerEntry[]>([
-    { id: crypto.randomUUID(), name: "" },
-    { id: crypto.randomUUID(), name: "" },
-    { id: crypto.randomUUID(), name: "" },
-    { id: crypto.randomUUID(), name: "" },
-    { id: crypto.randomUUID(), name: "" },
+    { id: crypto.randomUUID(), name: "Player 1" },
+    { id: crypto.randomUUID(), name: "Player 2" },
+    { id: crypto.randomUUID(), name: "Player 3" },
+    { id: crypto.randomUUID(), name: "Player 4" },
+    { id: crypto.randomUUID(), name: "Player 5" },
   ]);
+  const [sessionActive, setSessionActive] = useState(false);
 
   const [roleCounts, setRoleCounts] = useState<Record<RoleType, number>>(() => {
     const initial = {} as Record<RoleType, number>;
@@ -358,9 +360,34 @@ export default function Home() {
     localStorage.setItem("theme", "light");
   }, [darkMode]);
 
+  useEffect(() => {
+    const saved = loadSession();
+    if (!saved) return;
+    if (saved.players) setPlayers(saved.players);
+    if (saved.roleCounts) setRoleCounts(saved.roleCounts);
+    if (typeof saved.sessionActive === "boolean") setSessionActive(saved.sessionActive);
+  }, []);
+
+  useEffect(() => {
+    if (sessionActive) return;
+    const draft: SessionState = {
+      players,
+      roleCounts,
+      nightNumber: 1,
+      nightInProgress: false,
+      wakeIndex: 0,
+      undercoverIdentified: false,
+      sessionActive: false,
+      roleAssignments: createRoleAssignments(ROLE_TYPES),
+      nightActions: createNightActions(ROLE_TYPES),
+      deadPlayerIds: [],
+    };
+    saveSession(draft);
+  }, [players, roleCounts, sessionActive]);
+
   const totalPlayers = players.length;
   const namedPlayers = players.filter((player) => player.name.trim().length > 0).length;
-  const playersReady = totalPlayers >= 5 && namedPlayers === totalPlayers;
+  const playersReady = totalPlayers > 0 && namedPlayers === totalPlayers;
 
   const selectedRoles = useMemo(
     () => ROLE_TYPES.filter((role) => roleCounts[role] > 0),
@@ -390,7 +417,10 @@ export default function Home() {
   }
 
   function addPlayer() {
-    setPlayers((current) => [...current, { id: crypto.randomUUID(), name: "" }]);
+    setPlayers((current) => [
+      ...current,
+      { id: crypto.randomUUID(), name: `Player ${current.length + 1}` },
+    ]);
   }
 
   function removePlayer(id: string) {
@@ -417,6 +447,46 @@ export default function Home() {
       const next = Math.max(0, Math.min(maxForRole, value));
       return { ...current, [role]: next };
     });
+  }
+
+  function startSession() {
+    const state: SessionState = {
+      players,
+      roleCounts,
+      nightNumber: 1,
+      nightInProgress: false,
+      wakeIndex: 0,
+      undercoverIdentified: false,
+      sessionActive: true,
+      roleAssignments: createRoleAssignments(ROLE_TYPES),
+      nightActions: createNightActions(ROLE_TYPES),
+      deadPlayerIds: [],
+    };
+    saveSession(state);
+    setSessionActive(true);
+    router.push("/session");
+  }
+
+  function resumeSession() {
+    router.push("/session");
+  }
+
+  function endSession() {
+    setSessionActive(false);
+    clearSession();
+    const draft: SessionState = {
+      players,
+      roleCounts,
+      nightNumber: 1,
+      nightInProgress: false,
+      wakeIndex: 0,
+      undercoverIdentified: false,
+      sessionActive: false,
+      roleAssignments: createRoleAssignments(ROLE_TYPES),
+      nightActions: createNightActions(ROLE_TYPES),
+      deadPlayerIds: [],
+    };
+    saveSession(draft);
   }
 
   return (
@@ -469,7 +539,7 @@ export default function Home() {
                       <div>
                         <p className="font-semibold">Night wake order</p>
                         <p className="text-muted-foreground">
-                          Mafia, Rival Mafia, Serial Killer, Bartender, Lawyer, Vigilante, Detective, Doctor, Magician, Bus Driver.
+                          Night 1 starts with Cupid, then: Bus Driver, Mafia, Rival Mafia, Serial Killer, Bartender, Lawyer, Vigilante, Doctor, Magician, Detective.
                         </p>
                       </div>
                       <div>
@@ -510,7 +580,7 @@ export default function Home() {
 
                 <TabsContent value="players" className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">Minimum 5 players. Every seat must be named.</p>
+                    <p className="text-sm text-muted-foreground">Every seat must be named.</p>
                     <Badge variant={playersReady ? "default" : "secondary"}>
                       {namedPlayers}/{totalPlayers} named
                     </Badge>
@@ -533,7 +603,6 @@ export default function Home() {
                         <Button
                           variant="destructive"
                           onClick={() => removePlayer(player.id)}
-                          disabled={players.length <= 5}
                         >
                           Remove
                         </Button>
@@ -751,35 +820,35 @@ export default function Home() {
                     </Card>
                   </div>
 
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button
-                        className="w-full"
-                        disabled={!playersReady || !rolesReady}
-                      >
-                        Start Game Session
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Setup Locked In</DialogTitle>
-                        <DialogDescription>
-                          Ready to move into Night 1 moderation. Your UI is now rebuilt and game-ready.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-3 text-sm">
-                        <p>
-                          Players: <span className="font-semibold">{totalPlayers}</span>
-                        </p>
-                        <p>
-                          Roles: <span className="font-semibold">{totalRoles}</span>
-                        </p>
-                        <p>
-                          First wake call: <span className="font-semibold">{wakeOrder[0] ? roleLabel(wakeOrder[0]) : "N/A"}</span>
-                        </p>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Button
+                      className="w-full"
+                      disabled={!playersReady || !rolesReady}
+                      onClick={sessionActive ? resumeSession : startSession}
+                    >
+                      {sessionActive ? "Resume Session" : "Start Game Session"}
+                    </Button>
+                    <Button
+                      className="w-full"
+                      variant="outline"
+                      disabled={!sessionActive}
+                      onClick={endSession}
+                    >
+                      End Session
+                    </Button>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      Players: <span className="font-semibold">{totalPlayers}</span>
+                    </p>
+                    <p>
+                      Roles: <span className="font-semibold">{totalRoles}</span>
+                    </p>
+                    <p>
+                      First wake call:{" "}
+                      <span className="font-semibold">{wakeOrder[0] ? roleLabel(wakeOrder[0]) : "N/A"}</span>
+                    </p>
+                  </div>
                 </TabsContent>
               </Tabs>
             </CardContent>
@@ -838,8 +907,8 @@ export default function Home() {
 
             <Card className="border-border/60 bg-card/70 backdrop-blur">
               <CardHeader>
-                <CardTitle>Night 1 Wake Order</CardTitle>
-                <CardDescription>Generated from selected roles.</CardDescription>
+                <CardTitle>Wake Order</CardTitle>
+                <CardDescription>Night 1 sequence based on selected roles.</CardDescription>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-60 pr-3">
@@ -853,7 +922,14 @@ export default function Home() {
                         className="flex items-center justify-between rounded-md border border-border/70 bg-background/50 px-3 py-2 text-sm"
                       >
                         <span>{index + 1}</span>
-                        <span className="font-medium">{roleLabel(role)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{roleLabel(role)}</span>
+                          {role === "Cupid" && (
+                            <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                              Night 1 Only
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -866,4 +942,3 @@ export default function Home() {
     </main>
   );
 }
-

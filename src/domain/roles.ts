@@ -28,16 +28,16 @@ export type RoleDefinition = {
 
 // Wake order for nightly prompts (excluding Cupid which is night 1 only).
 export const WAKE_ORDER: RoleType[] = [
+  "BusDriver",
   "Mafia",
   "RivalMafia",
   "SerialKiller",
   "Bartender",
   "Lawyer",
   "Vigilante",
-  "Detective",
   "Doctor",
   "Magician",
-  "BusDriver",
+  "Detective",
 ];
 
 export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
@@ -45,7 +45,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     type: "Civilian",
     alignment: "Town",
     wakeOrder: null,
-    notes: "A `[Common Citizen]` with no special abilities.",
+    notes: "A Common Citizen with no special abilities.",
     abilities: [
       {
         name: "Common Citizen",
@@ -59,7 +59,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Town",
     wakeOrder: WAKE_ORDER.indexOf("Detective"),
     action: { targetCount: 1 },
-    notes: "A determined investigator who relies on `[Investigation]` to uncover the truth.",
+    notes: "A determined investigator who relies on Investigation to uncover the truth.",
     abilities: [
       {
         name: "Investigation",
@@ -73,7 +73,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Town",
     wakeOrder: WAKE_ORDER.indexOf("Doctor"),
     action: { targetCount: 1, allowSelf: true },
-    notes: "A medical professional who protects others using `[Medical Protection]`.",
+    notes: "A medical professional who protects others using Medical Protection.",
     abilities: [
       {
         name: "Medical Protection",
@@ -91,7 +91,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     type: "Miller",
     alignment: "Town",
     wakeOrder: null,
-    notes: "An innocent citizen burdened by `[False Suspicion]`, often mistaken for a criminal.",
+    notes: "An innocent citizen burdened by False Suspicion, often mistaken for a criminal.",
     abilities: [
       {
         name: "False Suspicion",
@@ -106,10 +106,10 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     wakeOrder: -1,
     nightOnly: "night1",
     action: { targetCount: 2 },
-    notes: "A matchmaker who creates powerful connections through `[Loverâ€™s Bond]`.",
+    notes: "A matchmaker who creates powerful connections through Lover's Bond.",
     abilities: [
       {
-        name: "Loverâ€™s Bond",
+        name: "Lover's Bond",
         description: "Choose two players to become Lovers.",
         activation: { phase: "Night 1", type: "Active" },
       },
@@ -125,7 +125,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Town",
     wakeOrder: WAKE_ORDER.indexOf("BusDriver"),
     action: { targetCount: 2 },
-    notes: "A night driver who causes confusion using `[Route Swap]`.",
+    notes: "A night driver who causes confusion using Route Swap.",
     abilities: [
       {
         name: "Route Swap",
@@ -138,7 +138,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     type: "UndercoverCop",
     alignment: "Town",
     wakeOrder: null,
-    notes: "An investigator secretly embedded within the Mafia using `[Deep Cover]`.",
+    notes: "An investigator secretly embedded within the Mafia using Deep Cover.",
     abilities: [
       {
         name: "Deep Cover",
@@ -156,7 +156,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     type: "Grandma",
     alignment: "Town",
     wakeOrder: null,
-    notes: "A protective homeowner who defends her property through `[Home Defense]`.",
+    notes: "A protective homeowner who defends her property through Home Defense.",
     abilities: [
       {
         name: "Home Defense",
@@ -175,7 +175,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Town",
     wakeOrder: WAKE_ORDER.indexOf("Magician"),
     action: { targetCount: 1, notes: "One kill and one save per game, at night." },
-    notes: "A mysterious performer capable of manipulating outcomes through `[Vanishing Act]` and `[Escape Trick]`.",
+    notes: "A mysterious performer capable of manipulating outcomes through Vanishing Act and Escape Trick.",
     abilities: [
       {
         name: "Vanishing Act",
@@ -193,7 +193,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     type: "Postman",
     alignment: "Neutral",
     wakeOrder: null,
-    notes: "A messenger who ensures one final delivery through `[Final Delivery]`.",
+    notes: "A messenger who ensures one final delivery through Final Delivery.",
     abilities: [
       {
         name: "Final Delivery",
@@ -207,7 +207,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Town",
     wakeOrder: WAKE_ORDER.indexOf("Vigilante"),
     action: { targetCount: 1 },
-    notes: "A lone enforcer who delivers justice using `[Single Shot]`.",
+    notes: "A lone enforcer who delivers justice using Single Shot.",
     abilities: [
       {
         name: "Single Shot",
@@ -226,7 +226,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Mafia",
     wakeOrder: WAKE_ORDER.indexOf("Mafia"),
     action: { targetCount: 1 },
-    notes: "A coordinated criminal group that removes threats using `[Mafia Kill]`.",
+    notes: "A coordinated criminal group that removes threats using Mafia Kill.",
     abilities: [
       {
         name: "Mafia Kill",
@@ -239,7 +239,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     type: "Godfather",
     alignment: "Mafia",
     wakeOrder: null,
-    notes: "The Mafiaâ€™s leader who avoids suspicion through `[Untouchable Reputation]`.",
+    notes: "The Mafia's leader who avoids suspicion through Untouchable Reputation.",
     abilities: [
       {
         name: "Untouchable Reputation",
@@ -253,7 +253,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Mafia",
     wakeOrder: WAKE_ORDER.indexOf("Lawyer"),
     action: { targetCount: 1 },
-    notes: "A skilled defender who shields allies using `[Legal Defense]`.",
+    notes: "A skilled defender who shields allies using Legal Defense.",
     abilities: [
       {
         name: "Legal Defense",
@@ -267,7 +267,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Mafia",
     wakeOrder: null,
     action: { targetCount: 1, notes: "Recruit once per game." },
-    notes: "A trusted Mafia member who expands their ranks through `[Recruitment]`.",
+    notes: "A trusted Mafia member who expands their ranks through Recruitment.",
     abilities: [
       {
         name: "Recruitment",
@@ -281,7 +281,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Mafia",
     wakeOrder: WAKE_ORDER.indexOf("Bartender"),
     action: { targetCount: 1 },
-    notes: "A manipulative drink server who disrupts others using `[Strong Drink]`.",
+    notes: "A manipulative drink server who disrupts others using Strong Drink.",
     abilities: [
       {
         name: "Strong Drink",
@@ -295,7 +295,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Neutral",
     wakeOrder: WAKE_ORDER.indexOf("SerialKiller"),
     action: { targetCount: 1 },
-    notes: "A dangerous individual who hunts alone using `[Night Kill]`.",
+    notes: "A dangerous individual who hunts alone using Night Kill.",
     abilities: [
       {
         name: "Night Kill",
@@ -314,7 +314,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "RivalMafia",
     wakeOrder: WAKE_ORDER.indexOf("RivalMafia"),
     action: { targetCount: 1 },
-    notes: "A competing criminal faction that attacks using `[Rival Kill]`.",
+    notes: "A competing criminal faction that attacks using Rival Kill.",
     abilities: [
       {
         name: "Rival Kill",
@@ -363,8 +363,3 @@ function validateRoleCopy() {
 }
 
 validateRoleCopy();
-
-
-
-
-
