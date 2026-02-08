@@ -363,6 +363,7 @@ export default function Home() {
   useEffect(() => {
     const saved = loadSession();
     if (!saved) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved.players) setPlayers(saved.players);
     if (saved.roleCounts) setRoleCounts(saved.roleCounts);
     if (typeof saved.sessionActive === "boolean") setSessionActive(saved.sessionActive);
@@ -376,7 +377,6 @@ export default function Home() {
       nightNumber: 1,
       nightInProgress: false,
       wakeIndex: 0,
-      undercoverIdentified: false,
       sessionActive: false,
       roleAssignments: createRoleAssignments(ROLE_TYPES),
       nightActions: createNightActions(ROLE_TYPES),
@@ -456,7 +456,6 @@ export default function Home() {
       nightNumber: 1,
       nightInProgress: false,
       wakeIndex: 0,
-      undercoverIdentified: false,
       sessionActive: true,
       roleAssignments: createRoleAssignments(ROLE_TYPES),
       nightActions: createNightActions(ROLE_TYPES),
@@ -480,7 +479,6 @@ export default function Home() {
       nightNumber: 1,
       nightInProgress: false,
       wakeIndex: 0,
-      undercoverIdentified: false,
       sessionActive: false,
       roleAssignments: createRoleAssignments(ROLE_TYPES),
       nightActions: createNightActions(ROLE_TYPES),
@@ -539,7 +537,7 @@ export default function Home() {
                       <div>
                         <p className="font-semibold">Night wake order</p>
                         <p className="text-muted-foreground">
-                          Night 1 starts with Cupid, then: Bus Driver, Mafia, Rival Mafia, Serial Killer, Bartender, Lawyer, Vigilante, Doctor, Magician, Detective.
+                          Night 1 starts with Cupid, then: Bus Driver, Mafia Team, Rival Mafia Team, Bartender, Lawyer, Vigilante, Doctor, Magician, Postman, Grandma, Detective.
                         </p>
                       </div>
                       <div>
@@ -610,7 +608,9 @@ export default function Home() {
                     ))}
                   </div>
 
-                  <Button onClick={addPlayer}>Add Player</Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={addPlayer}>Add Player</Button>
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="roles" className="space-y-4">

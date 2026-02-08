@@ -44,11 +44,11 @@ export type RoleStateMap = {
   UndercoverCop: EmptyState;
   Grandma: EmptyState;
   Magician: { usedKill: boolean; usedSave: boolean };
-  Postman: EmptyState;
-  Vigilante: { usedShot: boolean; lockedOut: boolean };
+  Postman: { usedDelivery: boolean };
+  Vigilante: { usedShot: boolean; lockedOut: boolean; pendingLockout?: boolean };
   Mafia: EmptyState;
   Godfather: EmptyState;
-  Lawyer: EmptyState;
+  Lawyer: { lastDefendedPlayerId?: string };
   MadeMan: { usedRecruit: boolean };
   Bartender: EmptyState;
   SerialKiller: EmptyState;
@@ -81,16 +81,29 @@ export type NightAction = {
 export type InvestigationResult = {
   actorRole: RoleType;
   targetId: string;
-  result: "Innocent" | "Mafia";
+  result: "Innocent" | "Guilty";
+};
+
+export type DeathDetail = {
+  playerId: string;
+  causes: string[];
+};
+
+export type RecruitDetail = {
+  playerId: string;
+  fromRole: RoleType;
 };
 
 export type NightResult = {
   deaths: string[];
+  deathDetails?: DeathDetail[];
   saves: string[];
   blocked: RoleType[];
   investigations: InvestigationResult[];
+  busSwaps?: Array<{ a: string; b: string }>;
   dayImmunities?: string[];
   recruits?: string[];
+  recruitDetails?: RecruitDetail[];
   loverPairsCreated?: string[];
   notes: string[];
 };

@@ -76,16 +76,17 @@ Night 1 only
 1. Cupid selects Lovers
 
 Every night
-1. Mafia Team (includes Godfather, Made Man, Undercover Cop)
-2. Rival Mafia (if in play)
-3. Serial Killer (if in play)
+1. Bus Driver
+2. Mafia Team (includes Godfather, Made Man, Undercover Cop)
+3. Rival Mafia (if in play)
 4. Bartender
 5. Lawyer
 6. Vigilante
-7. Detective
-8. Doctor
-9. Magician
-10. Bus Driver
+7. Doctor
+8. Magician
+9. Postman (Night 1 only, for role assignment)
+10. Grandma (Night 1 only, for role assignment)
+11. Detective (last)
 
 ---
 

@@ -27,8 +27,8 @@ export function getInitialRoleStates(): RoleStateMap {
     UndercoverCop: {},
     Grandma: {},
     Magician: { usedKill: false, usedSave: false },
-    Postman: {},
-    Vigilante: { usedShot: false, lockedOut: false },
+    Postman: { usedDelivery: false },
+    Vigilante: { usedShot: false, lockedOut: false, pendingLockout: false },
     Mafia: {},
     Godfather: {},
     Lawyer: {},
@@ -52,9 +52,12 @@ export function buildWakeOrder(
     wakeOrder.push("Cupid");
   }
 
+  const night1OnlyWakeRoles = new Set<RoleType>(["Postman", "Grandma"]);
+
   for (const role of WAKE_ORDER) {
     if (!rolesInPlay.includes(role)) continue;
     if (!isAlive(role)) continue;
+    if (night1OnlyWakeRoles.has(role) && nightNumber !== 1) continue;
     wakeOrder.push(role);
   }
 
@@ -65,7 +68,7 @@ export function validateAction(
   role: RoleType,
   targetIds: string[],
   context: ActionValidationContext,
-  metadata?: { choice?: "kill" | "save" }
+  metadata?: { choice?: "kill" | "save" | "none" }
 ): ActionValidationResult {
   const definition = ROLE_DEFINITIONS[role];
   const action = definition.action;
@@ -98,10 +101,19 @@ export function validateAction(
     }
   }
 
+  if (role === "Lawyer") {
+    if (states.Lawyer.lastDefendedPlayerId && targetIds[0] === states.Lawyer.lastDefendedPlayerId) {
+      return { valid: false, reason: "Lawyer cannot defend the same player twice in a row." };
+    }
+  }
+
   if (role === "Magician") {
     const choice = metadata?.choice;
     if (!choice) {
-      return { valid: false, reason: "Magician must choose kill, save, or no action." };
+      return { valid: false, reason: "Magician must choose Vanishing Act, Escape Trick, or No Action." };
+    }
+    if (choice === "none") {
+      return { valid: true };
     }
     if (choice === "kill" && states.Magician.usedKill) {
       return { valid: false, reason: "Magician already used their kill." };

@@ -31,12 +31,13 @@ export const WAKE_ORDER: RoleType[] = [
   "BusDriver",
   "Mafia",
   "RivalMafia",
-  "SerialKiller",
   "Bartender",
   "Lawyer",
   "Vigilante",
   "Doctor",
   "Magician",
+  "Postman",
+  "Grandma",
   "Detective",
 ];
 
@@ -142,12 +143,12 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     abilities: [
       {
         name: "Deep Cover",
-        description: "Wakes with the Mafia while remaining aligned with the Town.",
+        description: "Undercover Cop wakes with the Mafia while remaining aligned with the Town.",
         activation: { phase: "Any", type: "Passive" },
       },
       {
         name: "Maintain Cover",
-        description: "Cannot publicly reveal identity.",
+        description: "Undercover Cop cannot publicly reveal their identity.",
         activation: { phase: "Any", type: "Passive" },
       },
     ],
@@ -155,7 +156,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
   Grandma: {
     type: "Grandma",
     alignment: "Town",
-    wakeOrder: null,
+    wakeOrder: WAKE_ORDER.indexOf("Grandma"),
     notes: "A protective homeowner who defends her property through Home Defense.",
     abilities: [
       {
@@ -192,13 +193,13 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
   Postman: {
     type: "Postman",
     alignment: "Neutral",
-    wakeOrder: null,
+    wakeOrder: WAKE_ORDER.indexOf("Postman"),
     notes: "A messenger who ensures one final delivery through Final Delivery.",
     abilities: [
       {
         name: "Final Delivery",
-        description: "When the Postman dies, choose one player to die with them.",
-        activation: { phase: "Any", type: "Triggered" },
+        description: "If the Postman is hung during the day, choose one player to die with them.",
+        activation: { phase: "Day", type: "Triggered" },
       },
     ],
   },
@@ -271,7 +272,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     abilities: [
       {
         name: "Recruitment",
-        description: "Choose one player to join the Mafia.",
+        description: "Made Man blackmails one player to join the Mafia once per game.",
         activation: { phase: "Night", type: "Active" },
       },
     ],
@@ -293,7 +294,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
   SerialKiller: {
     type: "SerialKiller",
     alignment: "Neutral",
-    wakeOrder: WAKE_ORDER.indexOf("SerialKiller"),
+    wakeOrder: null,
     action: { targetCount: 1 },
     notes: "A dangerous individual who hunts alone using Night Kill.",
     abilities: [
@@ -329,6 +330,14 @@ export const ROLE_TYPES = Object.keys(ROLE_DEFINITIONS) as RoleType[];
 
 export function getRoleAlignment(role: RoleType): Alignment {
   return ROLE_DEFINITIONS[role].alignment;
+}
+
+export function getDetectiveResultForRole(role: RoleType): "Innocent" | "Guilty" {
+  if (role === "Godfather") return "Innocent";
+  if (role === "Miller") return "Guilty";
+  if (role === "SerialKiller") return "Guilty";
+  const alignment = getRoleAlignment(role);
+  return alignment === "Mafia" || alignment === "RivalMafia" ? "Guilty" : "Innocent";
 }
 
 const BRACKET_REFERENCE_PATTERN = /[[]([^]]+)[]]/g;

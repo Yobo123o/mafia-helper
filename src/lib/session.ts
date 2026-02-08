@@ -1,4 +1,4 @@
-import type { RoleType } from "@/domain/types";
+import type { NightResult, RoleStateMap, RoleType } from "@/domain/types";
 
 export type PlayerEntry = { id: string; name: string };
 
@@ -13,13 +13,29 @@ export type SessionState = {
   players: PlayerEntry[];
   roleCounts: Record<RoleType, number>;
   nightNumber: number;
+  dayNumber?: number;
   nightInProgress: boolean;
+  dayInProgress?: boolean;
+  dayEliminationDone?: boolean;
   wakeIndex: number;
-  undercoverIdentified: boolean;
   sessionActive: boolean;
   roleAssignments: RoleAssignments;
   nightActions: NightActionState;
   deadPlayerIds?: string[];
+  roleStates?: RoleStateMap;
+  loverPairs?: [string, string][];
+  previousNightSnapshot?: {
+    nightNumber: number;
+    deadPlayerIds: string[];
+    roleAssignments: RoleAssignments;
+    nightActions: NightActionState;
+    roleStates: RoleStateMap;
+    loverPairs: [string, string][];
+    convertedOrigins?: Record<string, RoleType>;
+  } | null;
+  lastNightResult?: NightResult | null;
+  convertedOrigins?: Record<string, RoleType>;
+  winCondition?: string | null;
 };
 
 export const SESSION_STORAGE_KEY = "mafia-helper-session";
