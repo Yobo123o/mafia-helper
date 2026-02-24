@@ -4,10 +4,9 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import { useRouter } from "next/navigation";
 import { resolveNight } from "@/domain/engine";
 import { getDetectiveResultForRole, ROLE_DEFINITIONS, ROLE_TYPES, type RoleAbility } from "@/domain/roles";
-import { ROLE_ICONS as BASE_ROLE_ICONS, roleLabel } from "@/domain/role-presentation";
+import { ROLE_ICONS as BASE_ROLE_ICONS, roleLabel, type RoleIconComponent } from "@/domain/role-presentation";
 import { buildWakeOrder, validateAction } from "@/domain/rules";
 import type { RoleType } from "@/domain/types";
-import type { IconType } from "react-icons";
 import type { LucideIcon } from "lucide-react";
 import {
   BanIcon,
@@ -265,7 +264,7 @@ function getTeamPageMaxWidthRem(role: RoleType, maxActionTargets: number, assign
 
 const NO_ACTION = "__no_action__";
 
-const ROLE_ICONS: Record<RoleType, IconType> = {
+const ROLE_ICONS: Record<RoleType, RoleIconComponent> = {
   ...BASE_ROLE_ICONS,
   Civilian: GiTwoCoins,
 };
@@ -824,15 +823,17 @@ export default function SessionPage() {
     if (postmanHung) {
       if (!awaitingPostmanDelivery) {
         setAwaitingPostmanDelivery(true);
-        setDayInfo("Postman hang confirmed. Choose a Final Delivery target, then confirm again.");
+        setDayInfo("Jester hang confirmed. Choose a Last Laugh target, then confirm again.");
         return;
       }
       const availableTargets = alivePlayers.map((player) => player.id).filter((id) => id !== postmanId);
       if (availableTargets.length > 0 && !postmanDeliveryTargetId) {
-        setDayError("Choose a Final Delivery target before confirming.");
+        setDayError("Choose a Last Laugh target before confirming.");
         return;
       }
-      if (postmanDeliveryTargetId && !deaths.has(postmanDeliveryTargetId)) {
+      if (postmanDeliveryTargetId && dayImmunitySet.has(postmanDeliveryTargetId)) {
+        // Legal Defense blocks Jester's day-triggered kill as well.
+      } else if (postmanDeliveryTargetId && !deaths.has(postmanDeliveryTargetId)) {
         deaths.add(postmanDeliveryTargetId);
         const expanded = applyLoverChainDay(deaths);
         deaths.clear();
@@ -842,9 +843,13 @@ export default function SessionPage() {
 
     const deadThisDay = Array.from(deaths).filter((id) => !deadSet.has(id));
     const collateral = deadThisDay.filter((id) => id !== dayNomineeId && id !== postmanDeliveryTargetId);
+    const lastLaughBlockedByDefense =
+      Boolean(postmanHung && postmanDeliveryTargetId) && dayImmunitySet.has(postmanDeliveryTargetId);
     let dayResolution = `${getPlayerName(dayNomineeId)} was successfully hung.`;
     if (postmanHung && postmanDeliveryTargetId) {
-      dayResolution += ` Postman Final Delivery killed ${getPlayerName(postmanDeliveryTargetId)}.`;
+      dayResolution += lastLaughBlockedByDefense
+        ? ` Jester's Last Laugh failed because ${getPlayerName(postmanDeliveryTargetId)} had Daytime Defense.`
+        : ` Jester's Last Laugh killed ${getPlayerName(postmanDeliveryTargetId)}.`;
     }
     if (collateral.length > 0) {
       dayResolution += ` Lover chain also killed ${collateral.map((id) => getPlayerName(id)).join(", ")}.`;
@@ -1099,6 +1104,7 @@ export default function SessionPage() {
                 swapAName: null as string | null,
                 swapBName: null as string | null,
                 redirected: false,
+                blockedByBartender: false,
               };
             }
             const rawTarget = nightActions.Detective?.targetIds?.[0];
@@ -1106,11 +1112,20 @@ export default function SessionPage() {
 
             const swapA = nightActions.BusDriver?.targetIds?.[0];
             const swapB = nightActions.BusDriver?.targetIds?.[1];
-            let resolvedTarget = rawTarget;
-            if (swapA && swapB) {
-              if (rawTarget === swapA) resolvedTarget = swapB;
-              else if (rawTarget === swapB) resolvedTarget = swapA;
-            }
+            const resolveBusSwap = (targetId: string | undefined) => {
+              if (!targetId || targetId === NO_ACTION) return targetId ?? "";
+              if (swapA && swapB) {
+                if (targetId === swapA) return swapB;
+                if (targetId === swapB) return swapA;
+              }
+              return targetId;
+            };
+            const resolvedTarget = resolveBusSwap(rawTarget);
+
+            const detectivePlayerId = roleAssignments.Detective?.[0] ?? "";
+            const bartenderTargetRaw = nightActions.Bartender?.targetIds?.[0];
+            const bartenderResolvedTarget = resolveBusSwap(bartenderTargetRaw);
+            const blockedByBartender = Boolean(detectivePlayerId && bartenderResolvedTarget === detectivePlayerId);
 
             const targetRole = assignedByPlayer[resolvedTarget] ?? "Civilian";
             const result = getDetectiveResultForRole(targetRole);
@@ -1123,6 +1138,7 @@ export default function SessionPage() {
               swapAName: swapA ? getPlayerName(swapA) : null,
               swapBName: swapB ? getPlayerName(swapB) : null,
               redirected: rawTarget !== resolvedTarget,
+              blockedByBartender,
             };
           })()
         : null;

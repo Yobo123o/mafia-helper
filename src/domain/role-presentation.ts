@@ -1,25 +1,27 @@
-import type { IconType } from "react-icons";
+import type { ComponentType } from "react";
 import {
   GiAssassinPocket,
+  GiBandit,
   GiBus,
   GiCigar,
   GiCupidonArrow,
   GiFedora,
+  GiGlassShot,
   GiHospitalCross,
+  GiJesterHat,
   GiKingJuMask,
   GiMagicHat,
-  GiMailbox,
+  GiMustache,
   GiPerson,
-  GiPistolGun,
   GiPoliceOfficerHead,
-  GiPotionOfMadness,
+  GiRevolver,
   GiScales,
-  GiShield,
-  GiSkullCrossedBones,
   GiSpy,
-  GiTie,
 } from "react-icons/gi";
+import { MdElderlyWoman } from "react-icons/md";
 import type { Alignment, RoleType } from "./types";
+
+export type RoleIconComponent = ComponentType<{ className?: string }>;
 
 export const UNIQUE_ROLES = new Set<RoleType>([
   "Detective",
@@ -78,27 +80,29 @@ export const ALIGNMENT_STYLES: Record<
   },
 };
 
-export const ROLE_ICONS: Record<RoleType, IconType> = {
+export const ROLE_ICONS: Record<RoleType, RoleIconComponent> = {
   Civilian: GiPerson,
   Detective: GiPoliceOfficerHead,
   Doctor: GiHospitalCross,
-  Miller: GiTie,
+  Miller: GiMustache,
   Cupid: GiCupidonArrow,
   BusDriver: GiBus,
   UndercoverCop: GiSpy,
-  Grandma: GiShield,
+  Grandma: MdElderlyWoman,
   Magician: GiMagicHat,
-  Postman: GiMailbox,
-  Vigilante: GiPistolGun,
+  Postman: GiJesterHat,
+  Vigilante: GiRevolver,
   Mafia: GiFedora,
   Godfather: GiCigar,
   Lawyer: GiScales,
   MadeMan: GiAssassinPocket,
-  Bartender: GiPotionOfMadness,
-  SerialKiller: GiSkullCrossedBones,
-  RivalMafia: GiKingJuMask,
+  Bartender: GiGlassShot,
+  SerialKiller: GiKingJuMask,
+  RivalMafia: GiBandit,
 };
 
 export function roleLabel(role: RoleType): string {
+  if (role === "Miller") return "Outcast";
+  if (role === "Postman") return "Jester";
   return role.replace(/([a-z])([A-Z])/g, "$1 $2");
 }

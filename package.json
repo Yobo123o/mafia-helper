@@ -13,6 +13,8 @@
     "test:watch": "npm run test:random"
   },
   "dependencies": {
+    "@iconify-json/game-icons": "^1.2.3",
+    "@iconify/react": "^6.0.2",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-label": "^2.1.2",
     "@radix-ui/react-separator": "^1.1.2",

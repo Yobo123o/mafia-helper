@@ -74,6 +74,26 @@ describe("resolveNight targeted interactions", () => {
     expect(output.nextRoleStates.Doctor.lastSavedPlayerId).toBeUndefined();
   });
 
+  it("applies Bus Driver redirect before Bartender block, preventing Detective result", () => {
+    const roleAssignments = makeAssignments();
+    roleAssignments.Bartender = ["p1"];
+    roleAssignments.BusDriver = ["p2"];
+    roleAssignments.Detective = ["p3"];
+    roleAssignments.Mafia = ["p4"];
+
+    const nightActions = makeNightActions();
+    nightActions.Bartender = { targetIds: ["p4"] };
+    nightActions.BusDriver = { targetIds: ["p3", "p4"] };
+    nightActions.Detective = { targetIds: ["p5"] };
+
+    const output = resolveNight(makeInput({ roleAssignments, nightActions, nightNumber: 2 }));
+
+    expect(output.result.busSwaps).toEqual([{ a: "p3", b: "p4" }]);
+    expect(output.result.blocked).toContain("Detective");
+    expect(output.result.investigations).toEqual([]);
+    expect(output.result.notes).toContain("Detective was blocked by Bartender.");
+  });
+
   it("records Lawyer day immunity and updates last defended player", () => {
     const roleAssignments = makeAssignments();
     roleAssignments.Lawyer = ["p1"];

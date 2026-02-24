@@ -83,7 +83,7 @@ function KeywordToken({ text, meta }: { text: string; meta: TooltipMeta }) {
       >
         <Badge
           variant="outline"
-          className={cn("h-5 cursor-help rounded-md px-1.5 text-[10px]", meta.badge)}
+          className={cn("h-6 cursor-help rounded-md px-2 text-sm leading-none", meta.badge)}
           tabIndex={0}
         >
           {text}
@@ -102,12 +102,12 @@ function KeywordToken({ text, meta }: { text: string; meta: TooltipMeta }) {
           >
             <div className="bg-gradient-to-br p-3">
               <div className="mb-1 flex items-center gap-2">
-                <Badge variant="outline" className={cn("rounded-md px-1.5 text-[10px]", meta.badge)}>
+                <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-sm leading-none", meta.badge)}>
                   {meta.label}
                 </Badge>
                 <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Reference</span>
               </div>
-              <p className="text-xs leading-relaxed text-popover-foreground">{meta.description}</p>
+              <p className="text-sm leading-relaxed text-popover-foreground">{meta.description}</p>
             </div>
             <div className="absolute left-1/2 top-full h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-border bg-popover/95" />
           </div>,
@@ -132,18 +132,18 @@ function RoleReferenceList({ abilities }: { abilities: RoleAbility[] }) {
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge
                 variant="outline"
-                className="h-5 w-fit rounded-md border-amber-500/40 bg-amber-500/15 px-1.5 text-[10px] text-amber-200"
+                className="h-6 w-fit rounded-md border-amber-500/40 bg-amber-500/15 px-2 text-sm leading-none text-amber-200"
               >
                 {ability.name}
               </Badge>
               <Badge
                 variant="outline"
-                className="h-5 w-fit rounded-md border-border/70 bg-muted/40 px-1.5 text-[10px] text-muted-foreground"
+                className="h-6 w-fit rounded-md border-border/70 bg-muted/40 px-2 text-sm leading-none text-muted-foreground"
               >
                 {activationLabel}
               </Badge>
             </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">{ability.description}</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">{ability.description}</p>
           </div>
         );
       })}
@@ -230,7 +230,7 @@ function RoleDescription({ text, abilities }: { text: string; abilities: RoleAbi
     nodes.push(...renderAbilityMatches(normalizedText.slice(cursor), `segment-end`));
   }
 
-  return <p className="text-xs leading-relaxed text-muted-foreground">{nodes}</p>;
+  return <p className="text-sm leading-relaxed text-muted-foreground">{nodes}</p>;
 }
 
 export default function Home() {
@@ -296,6 +296,7 @@ export default function Home() {
   );
 
   const rolesReady = totalRoles === totalPlayers && totalRoles > 0;
+  const roleSlotsDelta = totalPlayers - totalRoles;
   const setupProgress = useMemo(() => {
     let score = 0;
     if (playersReady) score += 50;
@@ -307,6 +308,16 @@ export default function Home() {
     () => buildWakeOrder(selectedRoles, { nightNumber: 1 }),
     [selectedRoles]
   );
+  const reviewBlockers = useMemo(() => {
+    const blockers: string[] = [];
+    if (!playersReady) blockers.push("Name all player seats.");
+    if (!rolesReady) {
+      if (roleSlotsDelta > 0) blockers.push(`Add ${roleSlotsDelta} more role slot${roleSlotsDelta === 1 ? "" : "s"}.`);
+      if (roleSlotsDelta < 0) blockers.push(`Remove ${Math.abs(roleSlotsDelta)} role slot${Math.abs(roleSlotsDelta) === 1 ? "" : "s"}.`);
+      if (roleSlotsDelta === 0 && totalPlayers === 0) blockers.push("Add players and roles before starting.");
+    }
+    return blockers;
+  }, [playersReady, roleSlotsDelta, rolesReady, totalPlayers]);
 
   function updatePlayerName(id: string, name: string) {
     setPlayers((current) => current.map((player) => (player.id === id ? { ...player, name } : player)));
@@ -409,13 +420,10 @@ export default function Home() {
       <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10">
         <header className="rounded-2xl border border-border/60 bg-card/60 p-4 backdrop-blur md:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="space-y-2">
-              <Badge className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
-                Mafia Moderator Helper
-              </Badge>
-              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Mafia Moderator Console</h1>
+            <div className="space-y-1.5">
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Mafia Moderator Setup</h1>
               <p className="max-w-2xl text-sm text-muted-foreground md:text-base">
-                Set up faster, run cleaner nights, and keep rule calls consistent at the table.
+                Configure players and roles, then launch the session.
               </p>
             </div>
 
@@ -448,7 +456,7 @@ export default function Home() {
                       <div>
                         <p className="font-semibold">Night wake order</p>
                         <p className="text-muted-foreground">
-                          Night 1 starts with Cupid, then: Bus Driver, Mafia Team, Rival Mafia Team, Bartender, Lawyer, Vigilante, Doctor, Magician, Postman, Grandma, Detective.
+                          Night 1 starts with Cupid, then: Bus Driver, Mafia Team, Rival Mafia Team, Bartender, Lawyer, Vigilante, Doctor, Magician, Jester, Grandma, Detective.
                         </p>
                       </div>
                       <div>
@@ -476,24 +484,29 @@ export default function Home() {
           <Card className="border-border/60 bg-card/70 backdrop-blur">
             <CardHeader>
               <CardTitle>Game Setup</CardTitle>
-              <CardDescription>Players, role pool, and final launch check.</CardDescription>
+              <CardDescription>Players, roles, and launch check.</CardDescription>
               <Progress value={setupProgress} className="mt-4" />
             </CardHeader>
             <CardContent>
               <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
                 <TabsList className="grid h-auto w-full grid-cols-3 gap-2 bg-muted/50 p-1">
-                  <TabsTrigger value="players">Players</TabsTrigger>
-                  <TabsTrigger value="roles">Roles</TabsTrigger>
-                  <TabsTrigger value="review">Review</TabsTrigger>
+                  <TabsTrigger value="players">1. Players</TabsTrigger>
+                  <TabsTrigger value="roles">2. Roles</TabsTrigger>
+                  <TabsTrigger value="review">3. Review</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="players" className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">Every seat must be named.</p>
+                    <p className="text-sm text-muted-foreground">Name each seat.</p>
                     <Badge variant={playersReady ? "default" : "secondary"}>
-                      {namedPlayers}/{totalPlayers} named
+                      {namedPlayers}/{totalPlayers} ready
                     </Badge>
                   </div>
+                  {!playersReady && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                      All seats need names before continuing.
+                    </div>
+                  )}
 
                   <div className="grid gap-3">
                     {players.map((player, index) => (
@@ -522,7 +535,7 @@ export default function Home() {
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={addPlayer}>Add Player</Button>
                     <Button variant="outline" onClick={applyQuickTestSetup}>
-                      Quick Test Setup (All Roles)
+                      Quick Test Fill
                     </Button>
                   </div>
                 </TabsContent>
@@ -544,6 +557,15 @@ export default function Home() {
                       </Badge>
                     </div>
                   </div>
+                  {!rolesReady && totalPlayers > 0 && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                      {roleSlotsDelta > 0
+                        ? `Add ${roleSlotsDelta} more role slot${roleSlotsDelta === 1 ? "" : "s"}.`
+                        : roleSlotsDelta < 0
+                          ? `Remove ${Math.abs(roleSlotsDelta)} role slot${Math.abs(roleSlotsDelta) === 1 ? "" : "s"}.`
+                          : "Role total must match player count."}
+                    </div>
+                  )}
 
                   <ScrollArea className="h-[65vh] pr-3">
                     <Accordion
@@ -585,7 +607,7 @@ export default function Home() {
                             </div>
                           </AccordionTrigger>
                           <AccordionContent>
-                            <div className="grid gap-3 pb-1 md:grid-cols-2">
+                            <div className="grid gap-3 pb-1 md:grid-cols-2 md:auto-rows-fr">
                               {ROLE_TYPES.filter((role) => ROLE_DEFINITIONS[role].alignment === alignment).map((role) => {
                                 const count = roleCounts[role];
                                 const unique = UNIQUE_ROLES.has(role);
@@ -598,7 +620,7 @@ export default function Home() {
                                 return (
                                   <div
                                     key={role}
-                                    className="group mx-auto w-full max-w-[300px] overflow-hidden rounded-xl border border-border/70 bg-card/60 shadow-sm transition-colors hover:border-border"
+                                    className="group mx-auto h-full w-full max-w-[320px] overflow-hidden rounded-xl border border-border/70 bg-card/60 shadow-sm transition-colors hover:border-border"
                                   >
                                     <div
                                       className={cn(
@@ -606,19 +628,19 @@ export default function Home() {
                                         ALIGNMENT_STYLES[alignment].glow
                                       )}
                                     />
-                                    <div className="flex flex-col gap-3 p-3">
+                                    <div className="flex h-full flex-col gap-3 p-3">
                                       <div className="flex items-start justify-between gap-2">
                                         <div className="space-y-1">
-                                          <p className="font-semibold leading-none">{roleLabel(role)}</p>
+                                          <p className="text-base font-semibold leading-none">{roleLabel(role)}</p>
                                           <div className="flex items-center gap-1.5">
                                             <Badge
                                               variant="outline"
-                                              className={cn("text-[10px]", ALIGNMENT_STYLES[alignment].badge)}
+                                              className={cn("h-6 px-2 text-sm leading-none", ALIGNMENT_STYLES[alignment].badge)}
                                             >
                                               {ALIGNMENT_LABELS[alignment]}
                                             </Badge>
                                             {unique && (
-                                              <Badge variant="secondary" className="text-[10px]">
+                                              <Badge variant="secondary" className="h-6 px-2 text-sm leading-none">
                                                 Unique
                                               </Badge>
                                             )}
@@ -626,32 +648,36 @@ export default function Home() {
                                         </div>
                                         <div
                                           className={cn(
-                                            "relative grid size-10 shrink-0 place-items-center rounded-lg border bg-background/40",
+                                            "relative grid size-12 shrink-0 place-items-center rounded-lg border bg-background/40",
                                             ALIGNMENT_STYLES[alignment].border
                                           )}
                                         >
                                           <RoleIcon
-                                            className={cn("relative block h-5 w-5 shrink-0", ALIGNMENT_STYLES[alignment].text)}
+                                            className={cn("relative block h-6 w-6 shrink-0", ALIGNMENT_STYLES[alignment].text)}
                                           />
                                         </div>
                                       </div>
 
-                                      <div className="space-y-3">
+                                      <div className="flex-1 space-y-2.5">
                                         <div className="space-y-2">
                                           <RoleDescription text={roleNotes} abilities={ROLE_DEFINITIONS[role].abilities} />
                                         </div>
 
                                         <Separator />
 
-                                        <div className="space-y-2">
+                                        <div className="min-h-[150px] space-y-2">
                                           <div className="flex items-center justify-between">
-                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Role Abilities</p>
+                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Role Abilities</p>
                                           </div>
-                                          <RoleReferenceList abilities={ROLE_DEFINITIONS[role].abilities} />
+                                          {ROLE_DEFINITIONS[role].abilities.length > 0 ? (
+                                            <RoleReferenceList abilities={ROLE_DEFINITIONS[role].abilities} />
+                                          ) : (
+                                            <p className="text-sm text-muted-foreground">No special abilities.</p>
+                                          )}
                                         </div>
                                       </div>
 
-                                      <div className="flex shrink-0 items-center justify-end gap-2 pt-1">
+                                      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/50 pt-2">
                                         {!unique && (
                                           <Button size="icon" variant="outline" onClick={() => updateRoleCount(role, -1)}>
                                             -
@@ -700,6 +726,36 @@ export default function Home() {
                 </TabsContent>
 
                 <TabsContent value="review" className="space-y-4">
+                  <Card className="bg-background/50">
+                    <CardHeader>
+                      <CardTitle className="text-base">{reviewBlockers.length === 0 ? "Ready to Launch" : "Before You Start"}</CardTitle>
+                      <CardDescription>
+                        {reviewBlockers.length === 0
+                          ? "Setup is complete. You can launch the moderator session."
+                          : "Resolve these items before starting the game."}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      {reviewBlockers.length === 0 ? (
+                        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-100">
+                          Ready to start.
+                        </div>
+                      ) : (
+                        <ul className="space-y-1">
+                          {reviewBlockers.map((blocker) => (
+                            <li key={blocker} className="flex items-start gap-2">
+                              <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-current/70" />
+                              <span>{blocker}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="rounded-md border border-border/60 bg-background/40 px-3 py-2">
+                        First wake call: <span className="font-semibold">{wakeOrder[0] ? roleLabel(wakeOrder[0]) : "N/A"}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
                   <div className="grid gap-4 md:grid-cols-2">
                     <Card className="bg-background/50">
                       <CardHeader>
@@ -751,18 +807,6 @@ export default function Home() {
                       End Session
                     </Button>
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <p>
-                      Players: <span className="font-semibold">{totalPlayers}</span>
-                    </p>
-                    <p>
-                      Roles: <span className="font-semibold">{totalRoles}</span>
-                    </p>
-                    <p>
-                      First wake call:{" "}
-                      <span className="font-semibold">{wakeOrder[0] ? roleLabel(wakeOrder[0]) : "N/A"}</span>
-                    </p>
-                  </div>
                 </TabsContent>
               </Tabs>
             </CardContent>
@@ -771,64 +815,74 @@ export default function Home() {
           <div className="space-y-6">
             <Card className="border-border/60 bg-card/70 backdrop-blur">
               <CardHeader>
-                <CardTitle>Session Status</CardTitle>
-                <CardDescription>Live setup telemetry.</CardDescription>
+                <CardTitle>Step Guide</CardTitle>
+                <CardDescription>
+                  {activeTab === "players"
+                    ? "Seat the table before choosing roles."
+                    : activeTab === "roles"
+                      ? "Build the role pool and explain roles as needed."
+                      : "Confirm the setup and launch the moderator session."}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Player readiness</span>
-                  <span className="font-semibold">{playersReady ? "Ready" : "Incomplete"}</span>
+                <div className="rounded-md border border-border/60 bg-background/40 px-3 py-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {activeTab === "players" ? "Step 1" : activeTab === "roles" ? "Step 2" : "Step 3"}
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {activeTab === "players"
+                      ? "Add and name each player seat."
+                      : activeTab === "roles"
+                        ? "Select roles until totals match the player count."
+                        : "Review and launch the game session."}
+                  </p>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Role parity</span>
-                  <span className="font-semibold">{rolesReady ? "Matched" : "Mismatch"}</span>
+                <div className="space-y-2">
+                  {activeTab === "players" && (
+                    <div className="flex items-center justify-between rounded-md border border-border/60 bg-background/40 px-3 py-2">
+                      <span className="text-muted-foreground">Seats named</span>
+                      <Badge variant={playersReady ? "default" : "secondary"}>{namedPlayers}/{totalPlayers}</Badge>
+                    </div>
+                  )}
+                  {activeTab === "roles" && (
+                    <div className="flex items-center justify-between rounded-md border border-border/60 bg-background/40 px-3 py-2">
+                      <span className="text-muted-foreground">Role slots</span>
+                      <Badge variant={rolesReady ? "default" : "secondary"}>{totalRoles}/{totalPlayers}</Badge>
+                    </div>
+                  )}
+                  {activeTab === "review" && (
+                    <div className="flex items-center justify-between rounded-md border border-border/60 bg-background/40 px-3 py-2">
+                      <span className="text-muted-foreground">Launch status</span>
+                      <Badge variant={reviewBlockers.length === 0 ? "default" : "secondary"}>
+                        {reviewBlockers.length === 0 ? "Ready" : `${reviewBlockers.length} blocker${reviewBlockers.length === 1 ? "" : "s"}`}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
                 <Separator />
-                <div className="space-y-2">
-                  {ALIGNMENTS.map((alignment) => {
-                    const roleBreakdown = ROLE_TYPES.filter(
-                      (role) => ROLE_DEFINITIONS[role].alignment === alignment && roleCounts[role] > 0
-                    );
-                    const count = roleBreakdown.reduce((sum, role) => sum + roleCounts[role], 0);
-                    return (
-                      <div key={alignment} className="space-y-1.5 rounded-md border border-border/60 bg-background/40 p-2">
-                        <div className="flex items-center justify-between">
-                          <span className={cn("text-sm", ALIGNMENT_STYLES[alignment].text)}>
-                            {ALIGNMENT_LABELS[alignment]}
-                          </span>
-                          <Badge variant="outline" className={ALIGNMENT_STYLES[alignment].badge}>
-                            {count}
-                          </Badge>
-                        </div>
-                        {roleBreakdown.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">None selected</p>
-                        ) : (
-                          <div className="space-y-1">
-                            {roleBreakdown.map((role) => (
-                              <div key={role} className="flex items-center justify-between text-xs">
-                                <span>{roleLabel(role)}</span>
-                                <span className="font-medium">x{roleCounts[role]}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div className="space-y-1.5 text-sm text-muted-foreground">
+                  {activeTab === "players" && <p>Next: choose the roles for this game.</p>}
+                  {activeTab === "roles" && <p>Use the role cards to explain abilities before the game starts.</p>}
+                  {activeTab === "review" && (
+                    <p>{reviewBlockers.length === 0 ? "Session can be launched now." : "Fix blockers, then start the session."}</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
+            {(activeTab === "roles" || activeTab === "review") && (
             <Card className="border-border/60 bg-card/70 backdrop-blur">
               <CardHeader>
                 <CardTitle>Wake Order</CardTitle>
-                <CardDescription>Night 1 sequence based on selected roles.</CardDescription>
+                <CardDescription>
+                  {activeTab === "roles" ? "Preview for Night 1 based on the current role pool." : "Final Night 1 wake sequence."}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-60 pr-3">
                   <div className="space-y-2">
                     {wakeOrder.length === 0 && (
-                      <p className="text-sm text-muted-foreground">No wake order yet. Add roles first.</p>
+                      <p className="text-sm text-muted-foreground">Add roles to preview the wake order.</p>
                     )}
                     {wakeOrder.map((role, index) => (
                       <div
@@ -850,6 +904,7 @@ export default function Home() {
                 </ScrollArea>
               </CardContent>
             </Card>
+            )}
           </div>
         </section>
       </div>

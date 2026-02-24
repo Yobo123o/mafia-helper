@@ -522,8 +522,8 @@ export function DayPhasePanel({
 
       {dayPostmanHung && (
         <div className="space-y-2 rounded-lg border border-border/70 bg-background/50 p-3">
-          <p className="text-sm font-semibold">Postman Final Delivery</p>
-          <p className="text-xs text-muted-foreground">Postman is being hung. Choose one additional target.</p>
+          <p className="text-sm font-semibold">Jester Last Laugh</p>
+          <p className="text-xs text-muted-foreground">Jester is being hung. Choose one additional target.</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {dayPostmanTargets.map((id) => (
               <button
@@ -569,6 +569,7 @@ export type DetectivePreview = {
   swapAName: string | null;
   swapBName: string | null;
   redirected: boolean;
+  blockedByBartender?: boolean;
 } | null;
 
 export function AssignmentSlotCard({
@@ -818,7 +819,17 @@ export function TargetCardsPanel({
       </div>
       {detectivePreview && (
         <div className="rounded-xl border border-border/70 bg-background/40 p-3">
-          {detectivePreview.result ? (
+          {detectivePreview.blockedByBartender ? (
+            <>
+              <p className="text-sm font-semibold">Result: No result (Drunk)</p>
+              <p className="text-xs text-muted-foreground">
+                Detective was served by Bartender and gets no investigation result tonight.
+                {detectivePreview.redirected && detectivePreview.selectedName && detectivePreview.resolvedName
+                  ? ` You selected ${detectivePreview.selectedName}, but Bus Driver redirected the investigation to ${detectivePreview.resolvedName}. Ignore the result because Detective is drunk.`
+                  : ""}
+              </p>
+            </>
+          ) : detectivePreview.result ? (
             <>
               <p className="text-sm font-semibold">Result: {detectivePreview.result}</p>
               <p className="text-xs text-muted-foreground">
