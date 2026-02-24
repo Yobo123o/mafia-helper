@@ -78,7 +78,13 @@ export function validateAction(
   }
 
   if (targetIds.length !== action.targetCount) {
-    return { valid: false, reason: "Invalid target count." };
+    return {
+      valid: false,
+      reason:
+        action.targetCount === 1
+          ? "Select a target before continuing."
+          : `Select ${action.targetCount} targets before continuing.`,
+    };
   }
 
   const states = context.roleStates;

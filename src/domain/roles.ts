@@ -347,6 +347,69 @@ function extractBracketedReferences(text: string): string[] {
   return Array.from(matches, (match) => match[1].trim());
 }
 
+function validateRoleDefinitions() {
+  const issues: string[] = [];
+  const wakeOrderSet = new Set<RoleType>();
+
+  for (const role of WAKE_ORDER) {
+    if (wakeOrderSet.has(role)) {
+      issues.push(`WAKE_ORDER: duplicate role ${role}.`);
+      continue;
+    }
+    wakeOrderSet.add(role);
+    if (!ROLE_DEFINITIONS[role]) {
+      issues.push(`WAKE_ORDER: unknown role ${role}.`);
+    }
+  }
+
+  for (const role of ROLE_TYPES) {
+    const definition = ROLE_DEFINITIONS[role];
+
+    if (definition.type !== role) {
+      issues.push(`${role}: definition.type must match object key.`);
+    }
+
+    const expectedWakeIndex = WAKE_ORDER.indexOf(role);
+    if (role === "Cupid") {
+      if (definition.wakeOrder !== -1) {
+        issues.push("Cupid: wakeOrder must be -1 (special Night 1 setup slot).");
+      }
+      if (definition.nightOnly !== "night1") {
+        issues.push("Cupid: nightOnly must be 'night1'.");
+      }
+    } else if (expectedWakeIndex >= 0) {
+      if (definition.wakeOrder !== expectedWakeIndex) {
+        issues.push(`${role}: wakeOrder should equal WAKE_ORDER index ${expectedWakeIndex}.`);
+      }
+    } else if (definition.wakeOrder !== null) {
+      issues.push(`${role}: wakeOrder must be null when role is not in WAKE_ORDER.`);
+    }
+
+    if (definition.action) {
+      const { targetCount } = definition.action;
+      if (!Number.isInteger(targetCount) || targetCount < 1) {
+        issues.push(`${role}: action.targetCount must be a positive integer.`);
+      }
+    }
+
+    if (definition.abilities.length === 0) {
+      issues.push(`${role}: at least one ability entry is required.`);
+    }
+
+    for (const ability of definition.abilities) {
+      if (!ability.name.trim()) issues.push(`${role}: ability name cannot be empty.`);
+      if (!ability.description.trim()) issues.push(`${role}: ability '${ability.name}' description cannot be empty.`);
+      if (ability.activation.phase === "Night 1" && ability.activation.type === "Passive") {
+        issues.push(`${role}: ability '${ability.name}' should not be marked 'Night 1' + Passive.`);
+      }
+    }
+  }
+
+  if (issues.length > 0) {
+    throw new Error(`Role definition validation failed:\n${issues.join("\n")}`);
+  }
+}
+
 function validateRoleCopy() {
   const issues: string[] = [];
 
@@ -371,4 +434,5 @@ function validateRoleCopy() {
   }
 }
 
+validateRoleDefinitions();
 validateRoleCopy();

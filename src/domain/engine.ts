@@ -139,7 +139,31 @@ function getMafiaSacrifice(
   return null;
 }
 
-export function resolveNight(input: ResolveNightInput): ResolveNightOutput {
+type NightResolutionContext = {
+  deadSet: Set<string>;
+  nextAssignments: Record<RoleType, string[]>;
+  nextRoleStates: RoleStateMap;
+  playerRoles: Record<string, RoleType>;
+  notes: string[];
+  blockedRoles: Set<RoleType>;
+  protectedAtNight: Set<string>;
+  dayImmunities: Set<string>;
+  deaths: Set<string>;
+  deathCauses: Map<string, Set<string>>;
+  saves: Set<string>;
+  investigations: NightResult["investigations"];
+  recruits: string[];
+  recruitDetails: NonNullable<NightResult["recruitDetails"]>;
+  nextLoverPairs: Pair[];
+  roleTargets: Partial<Record<RoleType, string[]>>;
+  swapA: string | null;
+  swapB: string | null;
+  convertedRoleThisNight: RoleType | null;
+  detectiveConvertedThisNight: boolean;
+  addDeathWithCause: (id: string | null, cause: string) => void;
+};
+
+function createResolutionContext(input: ResolveNightInput): NightResolutionContext {
   const deadSet = new Set(input.deadPlayerIds);
   const nextAssignments = cloneRoleAssignments(input.roleAssignments);
   const nextRoleStates = cloneRoleStates(input.roleStates);
@@ -153,8 +177,9 @@ export function resolveNight(input: ResolveNightInput): ResolveNightOutput {
   const saves = new Set<string>();
   const investigations: NightResult["investigations"] = [];
   const recruits: string[] = [];
-  const recruitDetails: NightResult["recruitDetails"] = [];
+  const recruitDetails: NonNullable<NightResult["recruitDetails"]> = [];
   const nextLoverPairs = [...input.loverPairs];
+  const roleTargets: Partial<Record<RoleType, string[]>> = {};
   const addDeathWithCause = (id: string | null, cause: string) => {
     if (!id) return;
     deaths.add(id);
@@ -162,81 +187,110 @@ export function resolveNight(input: ResolveNightInput): ResolveNightOutput {
     existing.add(cause);
     deathCauses.set(id, existing);
   };
+  return {
+    deadSet,
+    nextAssignments,
+    nextRoleStates,
+    playerRoles,
+    notes,
+    blockedRoles,
+    protectedAtNight,
+    dayImmunities,
+    deaths,
+    deathCauses,
+    saves,
+    investigations,
+    recruits,
+    recruitDetails,
+    nextLoverPairs,
+    roleTargets,
+    swapA: null,
+    swapB: null,
+    convertedRoleThisNight: null,
+    detectiveConvertedThisNight: false,
+    addDeathWithCause,
+  };
+}
 
+function applyTargetModifiersPhase(input: ResolveNightInput, ctx: NightResolutionContext) {
   const busTargets = input.nightActions.BusDriver?.targetIds ?? [];
-  const swapA = isActionableTarget(busTargets[0]) ? busTargets[0] : null;
-  const swapB = isActionableTarget(busTargets[1]) ? busTargets[1] : null;
+  ctx.swapA = isActionableTarget(busTargets[0]) ? busTargets[0] : null;
+  ctx.swapB = isActionableTarget(busTargets[1]) ? busTargets[1] : null;
 
-  const roleTargets: Partial<Record<RoleType, string[]>> = {};
   for (const role of Object.keys(input.nightActions) as RoleType[]) {
     const action = input.nightActions[role];
     const targets = (action?.targetIds ?? []).map((id) =>
-      isActionableTarget(id) ? redirectTarget(id, swapA, swapB) : id
+      isActionableTarget(id) ? redirectTarget(id, ctx.swapA, ctx.swapB) : id
     );
-    roleTargets[role] = targets;
-  }
-  if (swapA && swapB) {
-    notes.push("Bus Driver swap was applied.");
+    ctx.roleTargets[role] = targets;
   }
 
-  const recruitTarget = roleTargets.MadeMan?.[0];
-  const convertedRoleThisNight =
+  if (ctx.swapA && ctx.swapB) {
+    ctx.notes.push("Bus Driver swap was applied.");
+  }
+
+  const recruitTarget = ctx.roleTargets.MadeMan?.[0];
+  ctx.convertedRoleThisNight =
     !input.roleStates.MadeMan.usedRecruit && isActionableTarget(recruitTarget)
-      ? playerRoles[recruitTarget]
+      ? ctx.playerRoles[recruitTarget]
       : null;
-  const detectiveConvertedThisNight = convertedRoleThisNight === "Detective";
+  ctx.detectiveConvertedThisNight = ctx.convertedRoleThisNight === "Detective";
+}
 
-  const bartenderTarget = roleTargets.Bartender?.[0];
-  if (isActionableTarget(bartenderTarget)) {
-    const blockedRole = playerRoles[bartenderTarget];
-    if (blockedRole) {
-      blockedRoles.add(blockedRole);
-      notes.push(`${blockedRole} was blocked by Bartender.`);
+function applyAbilityBlocksPhase(ctx: NightResolutionContext) {
+  const bartenderTarget = ctx.roleTargets.Bartender?.[0];
+  if (!isActionableTarget(bartenderTarget)) return;
+  const blockedRole = ctx.playerRoles[bartenderTarget];
+  if (!blockedRole) return;
+  ctx.blockedRoles.add(blockedRole);
+  ctx.notes.push(`${blockedRole} was blocked by Bartender.`);
+}
+
+function applyProtectionPhase(input: ResolveNightInput, ctx: NightResolutionContext) {
+  if (!ctx.blockedRoles.has("Doctor")) {
+    const doctorTarget = ctx.roleTargets.Doctor?.[0];
+    if (isActionableTarget(doctorTarget) && !ctx.deadSet.has(doctorTarget)) {
+      ctx.protectedAtNight.add(doctorTarget);
+      ctx.nextRoleStates.Doctor.lastSavedPlayerId = doctorTarget;
     }
   }
 
-  if (!blockedRoles.has("Doctor")) {
-    const doctorTarget = roleTargets.Doctor?.[0];
-    if (isActionableTarget(doctorTarget) && !deadSet.has(doctorTarget)) {
-      protectedAtNight.add(doctorTarget);
-      nextRoleStates.Doctor.lastSavedPlayerId = doctorTarget;
+  if (!ctx.blockedRoles.has("Lawyer")) {
+    const lawyerTarget = ctx.roleTargets.Lawyer?.[0];
+    if (isActionableTarget(lawyerTarget) && !ctx.deadSet.has(lawyerTarget)) {
+      ctx.dayImmunities.add(lawyerTarget);
+      ctx.nextRoleStates.Lawyer.lastDefendedPlayerId = lawyerTarget;
     }
   }
 
-  if (!blockedRoles.has("Lawyer")) {
-    const lawyerTarget = roleTargets.Lawyer?.[0];
-    if (isActionableTarget(lawyerTarget) && !deadSet.has(lawyerTarget)) {
-      dayImmunities.add(lawyerTarget);
-      nextRoleStates.Lawyer.lastDefendedPlayerId = lawyerTarget;
-    }
-  }
-
-  if (!blockedRoles.has("Magician")) {
-    const magicianTarget = roleTargets.Magician?.[0];
+  if (!ctx.blockedRoles.has("Magician")) {
+    const magicianTarget = ctx.roleTargets.Magician?.[0];
     const magicianChoice = input.nightActions.Magician?.metadata?.choice;
-    if (magicianChoice === "save" && isActionableTarget(magicianTarget) && !deadSet.has(magicianTarget)) {
-      protectedAtNight.add(magicianTarget);
-      nextRoleStates.Magician.usedSave = true;
+    if (magicianChoice === "save" && isActionableTarget(magicianTarget) && !ctx.deadSet.has(magicianTarget)) {
+      ctx.protectedAtNight.add(magicianTarget);
+      ctx.nextRoleStates.Magician.usedSave = true;
     }
-    if (magicianChoice === "kill" && isActionableTarget(magicianTarget) && !deadSet.has(magicianTarget)) {
-      addDeathWithCause(magicianTarget, "Killed by Magician (Vanishing Act).");
-      nextRoleStates.Magician.usedKill = true;
+    if (magicianChoice === "kill" && isActionableTarget(magicianTarget) && !ctx.deadSet.has(magicianTarget)) {
+      ctx.addDeathWithCause(magicianTarget, "Killed by Magician (Vanishing Act).");
+      ctx.nextRoleStates.Magician.usedKill = true;
     }
   }
+}
 
+function applyKillPhase(input: ResolveNightInput, ctx: NightResolutionContext) {
   const killerRoles: RoleType[] = ["Mafia", "RivalMafia", "SerialKiller", "Vigilante"];
   for (const role of killerRoles) {
-    if (blockedRoles.has(role)) continue;
-    const target = roleTargets[role]?.[0];
+    if (ctx.blockedRoles.has(role)) continue;
+    const target = ctx.roleTargets[role]?.[0];
     if (!isActionableTarget(target)) continue;
-    if (deadSet.has(target)) continue;
+    if (ctx.deadSet.has(target)) continue;
 
     if (role === "Vigilante") {
       if (input.nightNumber === 1 || input.roleStates.Vigilante.lockedOut || input.roleStates.Vigilante.usedShot) {
-        notes.push("Vigilante action was ignored due to role restrictions.");
+        ctx.notes.push("Vigilante action was ignored due to role restrictions.");
         continue;
       }
-      nextRoleStates.Vigilante.usedShot = true;
+      ctx.nextRoleStates.Vigilante.usedShot = true;
     }
 
     const cause =
@@ -247,18 +301,22 @@ export function resolveNight(input: ResolveNightInput): ResolveNightOutput {
           : role === "SerialKiller"
             ? "Killed by Serial Killer (Night Kill)."
             : "Killed by Vigilante (Single Shot).";
-    addDeathWithCause(target, cause);
+    ctx.addDeathWithCause(target, cause);
   }
 
-  for (const target of Array.from(deaths)) {
-    if (protectedAtNight.has(target)) {
-      deaths.delete(target);
-      saves.add(target);
+  for (const target of Array.from(ctx.deaths)) {
+    if (ctx.protectedAtNight.has(target)) {
+      ctx.deaths.delete(target);
+      ctx.saves.add(target);
     }
   }
+}
 
-  const grandmaId = firstAliveForRole("Grandma", nextAssignments, deadSet);
-  if (grandmaId && !deaths.has(grandmaId)) {
+function applyPassiveEffectsPhase(input: ResolveNightInput, ctx: NightResolutionContext) {
+  const grandmaId = firstAliveForRole("Grandma", ctx.nextAssignments, ctx.deadSet);
+  // Grandma's retaliation is based on being alive at the start of the night.
+  // A same-night kill should not suppress Home Defense retaliation.
+  if (grandmaId) {
     const visitingRoles: RoleType[] = [
       "Mafia",
       "RivalMafia",
@@ -275,73 +333,77 @@ export function resolveNight(input: ResolveNightInput): ResolveNightOutput {
     ];
 
     for (const role of visitingRoles) {
-      if (blockedRoles.has(role)) continue;
-      const roleTargetIds = roleTargets[role] ?? [];
+      if (ctx.blockedRoles.has(role)) continue;
+      const roleTargetIds = ctx.roleTargets[role] ?? [];
       const visitedGrandma = roleTargetIds.some((id) => isActionableTarget(id) && id === grandmaId);
       if (!visitedGrandma) continue;
 
       if (role === "Mafia") {
-        const mafiaDeath = getMafiaSacrifice(nextAssignments, deadSet);
-        addDeathWithCause(mafiaDeath, "Visited Grandma and died to Home Defense retaliation.");
-        if (mafiaDeath) notes.push("Grandma retaliated against the Mafia visit.");
+        const mafiaDeath = getMafiaSacrifice(ctx.nextAssignments, ctx.deadSet);
+        ctx.addDeathWithCause(mafiaDeath, "Visited Grandma and died to Home Defense retaliation.");
+        if (mafiaDeath) ctx.notes.push("Grandma retaliated against the Mafia visit.");
         continue;
       }
 
-      const actor = firstAliveForRole(role, nextAssignments, deadSet);
-      addDeathWithCause(actor, `Visited Grandma as ${formatRoleName(role)} and died to Home Defense.`);
-      if (actor) notes.push(`${role} died while visiting Grandma.`);
+      const actor = firstAliveForRole(role, ctx.nextAssignments, ctx.deadSet);
+      ctx.addDeathWithCause(actor, `Visited Grandma as ${formatRoleName(role)} and died to Home Defense.`);
+      if (actor) ctx.notes.push(`${role} died while visiting Grandma.`);
     }
   }
 
   let loverDeathAdded = true;
   while (loverDeathAdded) {
     loverDeathAdded = false;
-    for (const [a, b] of nextLoverPairs) {
-      const aDead = deaths.has(a) || deadSet.has(a);
-      const bDead = deaths.has(b) || deadSet.has(b);
+    for (const [a, b] of ctx.nextLoverPairs) {
+      const aDead = ctx.deaths.has(a) || ctx.deadSet.has(a);
+      const bDead = ctx.deaths.has(b) || ctx.deadSet.has(b);
       if (aDead && !bDead) {
-        addDeathWithCause(b, "Died from Shared Fate (Lover chain).");
-        notes.push("Lover chain death occurred.");
+        ctx.addDeathWithCause(b, "Died from Shared Fate (Lover chain).");
+        ctx.notes.push("Lover chain death occurred.");
         loverDeathAdded = true;
       }
       if (bDead && !aDead) {
-        addDeathWithCause(a, "Died from Shared Fate (Lover chain).");
-        notes.push("Lover chain death occurred.");
+        ctx.addDeathWithCause(a, "Died from Shared Fate (Lover chain).");
+        ctx.notes.push("Lover chain death occurred.");
         loverDeathAdded = true;
       }
     }
   }
+}
 
-  if (!blockedRoles.has("Detective") && !detectiveConvertedThisNight) {
-    const detectiveTarget = roleTargets.Detective?.[0];
+function applyInvestigationsPhase(input: ResolveNightInput, ctx: NightResolutionContext) {
+  if (!ctx.blockedRoles.has("Detective") && !ctx.detectiveConvertedThisNight) {
+    const detectiveTarget = ctx.roleTargets.Detective?.[0];
     if (isActionableTarget(detectiveTarget)) {
-      const targetRole = playerRoles[detectiveTarget];
+      const targetRole = ctx.playerRoles[detectiveTarget];
       if (targetRole) {
         const result = getDetectiveResultForRole(targetRole);
-        investigations.push({ actorRole: "Detective", targetId: detectiveTarget, result });
+        ctx.investigations.push({ actorRole: "Detective", targetId: detectiveTarget, result });
       }
     }
   }
-  if (detectiveConvertedThisNight) {
-    notes.push("Detective was converted before investigation resolved.");
+  if (ctx.detectiveConvertedThisNight) {
+    ctx.notes.push("Detective was converted before investigation resolved.");
   }
 
-  if (!blockedRoles.has("Cupid") && input.nightNumber === 1 && !nextRoleStates.Cupid.used) {
-    const cupidTargets = roleTargets.Cupid ?? [];
+  if (!ctx.blockedRoles.has("Cupid") && input.nightNumber === 1 && !ctx.nextRoleStates.Cupid.used) {
+    const cupidTargets = ctx.roleTargets.Cupid ?? [];
     const loverA = cupidTargets[0];
     const loverB = cupidTargets[1];
     if (isActionableTarget(loverA) && isActionableTarget(loverB) && loverA !== loverB) {
-      nextLoverPairs.push([loverA, loverB]);
-      nextRoleStates.Cupid.used = true;
-      nextRoleStates.Cupid.loverPairId = `${loverA}|${loverB}`;
-      notes.push("Cupid created a lover pair.");
+      ctx.nextLoverPairs.push([loverA, loverB]);
+      ctx.nextRoleStates.Cupid.used = true;
+      ctx.nextRoleStates.Cupid.loverPairId = `${loverA}|${loverB}`;
+      ctx.notes.push("Cupid created a lover pair.");
     }
   }
+}
 
-  if (!blockedRoles.has("MadeMan") && !input.roleStates.MadeMan.usedRecruit) {
-    const recruitTarget = roleTargets.MadeMan?.[0];
-    if (isActionableTarget(recruitTarget) && !deadSet.has(recruitTarget)) {
-      const currentRole = playerRoles[recruitTarget];
+function applyPostInvestigationStateChanges(input: ResolveNightInput, ctx: NightResolutionContext) {
+  if (!ctx.blockedRoles.has("MadeMan") && !input.roleStates.MadeMan.usedRecruit) {
+    const recruitTarget = ctx.roleTargets.MadeMan?.[0];
+    if (isActionableTarget(recruitTarget) && !ctx.deadSet.has(recruitTarget)) {
+      const currentRole = ctx.playerRoles[recruitTarget];
       if (
         currentRole &&
         currentRole !== "Mafia" &&
@@ -349,51 +411,62 @@ export function resolveNight(input: ResolveNightInput): ResolveNightOutput {
         currentRole !== "MadeMan" &&
         currentRole !== "UndercoverCop"
       ) {
-        nextAssignments[currentRole] = (nextAssignments[currentRole] ?? []).filter((id) => id !== recruitTarget);
-        nextAssignments.Mafia = [...(nextAssignments.Mafia ?? []), recruitTarget];
-        recruits.push(recruitTarget);
-        recruitDetails.push({ playerId: recruitTarget, fromRole: currentRole });
-        nextRoleStates.MadeMan.usedRecruit = true;
-        notes.push("Made Man recruited a player to Mafia.");
+        ctx.nextAssignments[currentRole] = (ctx.nextAssignments[currentRole] ?? []).filter((id) => id !== recruitTarget);
+        ctx.nextAssignments.Mafia = [...(ctx.nextAssignments.Mafia ?? []), recruitTarget];
+        ctx.recruits.push(recruitTarget);
+        ctx.recruitDetails.push({ playerId: recruitTarget, fromRole: currentRole });
+        ctx.nextRoleStates.MadeMan.usedRecruit = true;
+        ctx.notes.push("Made Man recruited a player to Mafia.");
       }
     }
   }
 
-  if (nextRoleStates.Vigilante.usedShot) {
-    const vigilanteTarget = roleTargets.Vigilante?.[0];
-    if (isActionableTarget(vigilanteTarget) && deaths.has(vigilanteTarget)) {
-      const role = playerRoles[vigilanteTarget];
+  if (ctx.nextRoleStates.Vigilante.usedShot) {
+    const vigilanteTarget = ctx.roleTargets.Vigilante?.[0];
+    if (isActionableTarget(vigilanteTarget) && ctx.deaths.has(vigilanteTarget)) {
+      const role = ctx.playerRoles[vigilanteTarget];
       if (role && getRoleAlignment(role) === "Town") {
-        nextRoleStates.Vigilante.pendingLockout = true;
-        notes.push("Vigilante killed a Town player and will be locked out next night.");
+        ctx.nextRoleStates.Vigilante.pendingLockout = true;
+        ctx.notes.push("Vigilante killed a Town player and will be locked out next night.");
       }
     }
   }
+}
 
-  const nightDeaths = unique(Array.from(deaths).filter((id) => !deadSet.has(id)));
+export function resolveNight(input: ResolveNightInput): ResolveNightOutput {
+  const ctx = createResolutionContext(input);
+  applyTargetModifiersPhase(input, ctx);
+  applyAbilityBlocksPhase(ctx);
+  applyProtectionPhase(input, ctx);
+  applyKillPhase(input, ctx);
+  applyPassiveEffectsPhase(input, ctx);
+  applyInvestigationsPhase(input, ctx);
+  applyPostInvestigationStateChanges(input, ctx);
+
+  const nightDeaths = unique(Array.from(ctx.deaths).filter((id) => !ctx.deadSet.has(id)));
   const nextDead = unique([...input.deadPlayerIds, ...nightDeaths]);
   const deathDetails = nightDeaths.map((id) => ({
     playerId: id,
-    causes: Array.from(deathCauses.get(id) ?? []),
+    causes: Array.from(ctx.deathCauses.get(id) ?? []),
   }));
 
   return {
     nextDeadPlayerIds: nextDead,
-    nextRoleAssignments: nextAssignments,
-    nextRoleStates,
-    nextLoverPairs,
+    nextRoleAssignments: ctx.nextAssignments,
+    nextRoleStates: ctx.nextRoleStates,
+    nextLoverPairs: ctx.nextLoverPairs,
     result: {
       deaths: nightDeaths,
       deathDetails,
-      saves: unique(Array.from(saves)),
-      blocked: unique(Array.from(blockedRoles)) as RoleType[],
-      investigations,
-      busSwaps: swapA && swapB ? [{ a: swapA, b: swapB }] : [],
-      dayImmunities: unique(Array.from(dayImmunities)),
-      recruits: unique(recruits),
-      recruitDetails,
-      loverPairsCreated: nextLoverPairs.map(([a, b]) => `${a}|${b}`),
-      notes,
+      saves: unique(Array.from(ctx.saves)),
+      blocked: unique(Array.from(ctx.blockedRoles)) as RoleType[],
+      investigations: ctx.investigations,
+      busSwaps: ctx.swapA && ctx.swapB ? [{ a: ctx.swapA, b: ctx.swapB }] : [],
+      dayImmunities: unique(Array.from(ctx.dayImmunities)),
+      recruits: unique(ctx.recruits),
+      recruitDetails: ctx.recruitDetails,
+      loverPairsCreated: ctx.nextLoverPairs.map(([a, b]) => `${a}|${b}`),
+      notes: ctx.notes,
     },
   };
 }

@@ -2,39 +2,27 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { IconType } from "react-icons";
-import {
-  GiAssassinPocket,
-  GiBus,
-  GiCigar,
-  GiCupidonArrow,
-  GiFedora,
-  GiHospitalCross,
-  GiKingJuMask,
-  GiMagicHat,
-  GiMailbox,
-  GiPistolGun,
-  GiPerson,
-  GiPoliceOfficerHead,
-  GiPotionOfMadness,
-  GiScales,
-  GiShield,
-  GiSkullCrossedBones,
-  GiSpy,
-  GiTie,
-} from "react-icons/gi";
 import { buildWakeOrder } from "@/domain/rules";
 import { ROLE_DEFINITIONS, ROLE_TYPES, type RoleAbility } from "@/domain/roles";
-import type { Alignment, RoleType } from "@/domain/types";
+import {
+  ALIGNMENTS,
+  ALIGNMENT_LABELS,
+  ALIGNMENT_STYLES,
+  ROLE_ICONS,
+  UNIQUE_ROLES,
+  roleLabel,
+} from "@/domain/role-presentation";
+import type { RoleType } from "@/domain/types";
 import {
   clearSession,
   createNightActions,
   createRoleAssignments,
-  loadSession,
   saveSession,
   type PlayerEntry,
   type SessionState,
 } from "@/lib/session";
+import { useAutosaveSession, useSavedSession } from "@/hooks/use-session-persistence";
+import { useThemePreference } from "@/hooks/use-theme-preference";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,94 +38,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-const UNIQUE_ROLES = new Set<RoleType>([
-  "Detective",
-  "Doctor",
-  "Miller",
-  "Cupid",
-  "BusDriver",
-  "UndercoverCop",
-  "Grandma",
-  "Magician",
-  "Postman",
-  "Vigilante",
-  "Godfather",
-  "Lawyer",
-  "MadeMan",
-  "Bartender",
-  "SerialKiller",
-]);
-
-const ALIGNMENTS: Alignment[] = ["Town", "Mafia", "RivalMafia", "Neutral"];
-
-const ALIGNMENT_LABELS: Record<Alignment, string> = {
-  Town: "Town",
-  Mafia: "Mafia",
-  RivalMafia: "Rival Mafia",
-  Neutral: "Neutral",
-};
-
-const ALIGNMENT_STYLES: Record<
-  Alignment,
-  { badge: string; border: string; text: string; glow: string }
-> = {
-  Town: {
-    badge: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-    border: "border-emerald-500/30",
-    text: "text-emerald-300",
-    glow: "bg-emerald-500/30",
-  },
-  Mafia: {
-    badge: "bg-red-500/15 text-red-300 border-red-500/40",
-    border: "border-red-500/30",
-    text: "text-red-300",
-    glow: "bg-red-500/30",
-  },
-  RivalMafia: {
-    badge: "bg-amber-500/15 text-amber-300 border-amber-500/40",
-    border: "border-amber-500/30",
-    text: "text-amber-300",
-    glow: "bg-amber-500/30",
-  },
-  Neutral: {
-    badge: "bg-cyan-500/15 text-cyan-300 border-cyan-500/40",
-    border: "border-cyan-500/30",
-    text: "text-cyan-300",
-    glow: "bg-cyan-500/30",
-  },
-};
-
 type TooltipMeta = {
   label: string;
   badge: string;
   tone: string;
   description: string;
 };
-
-const ROLE_ICONS: Record<RoleType, IconType> = {
-  Civilian: GiPerson,
-  Detective: GiPoliceOfficerHead,
-  Doctor: GiHospitalCross,
-  Miller: GiTie,
-  Cupid: GiCupidonArrow,
-  BusDriver: GiBus,
-  UndercoverCop: GiSpy,
-  Grandma: GiShield,
-  Magician: GiMagicHat,
-  Postman: GiMailbox,
-  Vigilante: GiPistolGun,
-  Mafia: GiFedora,
-  Godfather: GiCigar,
-  Lawyer: GiScales,
-  MadeMan: GiAssassinPocket,
-  Bartender: GiPotionOfMadness,
-  SerialKiller: GiSkullCrossedBones,
-  RivalMafia: GiKingJuMask,
-};
-
-function roleLabel(role: RoleType): string {
-  return role.replace(/([a-z])([A-Z])/g, "$1 $2");
-}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -331,10 +237,7 @@ export default function Home() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("players");
   const [expandedAlignments, setExpandedAlignments] = useState<string[]>([]);
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return localStorage.getItem("theme") !== "light";
-  });
+  const { darkMode, setDarkMode } = useThemePreference();
   const [players, setPlayers] = useState<PlayerEntry[]>([
     { id: crypto.randomUUID(), name: "Player 1" },
     { id: crypto.randomUUID(), name: "Player 2" },
@@ -350,28 +253,20 @@ export default function Home() {
     return initial;
   });
 
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-      return;
-    }
-    document.documentElement.classList.remove("dark");
-    localStorage.setItem("theme", "light");
-  }, [darkMode]);
+  const savedSession = useSavedSession();
 
   useEffect(() => {
-    const saved = loadSession();
+    const saved = savedSession;
     if (!saved) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved.players) setPlayers(saved.players);
     if (saved.roleCounts) setRoleCounts(saved.roleCounts);
     if (typeof saved.sessionActive === "boolean") setSessionActive(saved.sessionActive);
-  }, []);
+  }, [savedSession]);
 
-  useEffect(() => {
-    if (sessionActive) return;
-    const draft: SessionState = {
+  const draftSession = useMemo<SessionState | null>(() => {
+    if (sessionActive) return null;
+    return {
       players,
       roleCounts,
       nightNumber: 1,
@@ -382,8 +277,9 @@ export default function Home() {
       nightActions: createNightActions(ROLE_TYPES),
       deadPlayerIds: [],
     };
-    saveSession(draft);
   }, [players, roleCounts, sessionActive]);
+
+  useAutosaveSession(draftSession);
 
   const totalPlayers = players.length;
   const namedPlayers = players.filter((player) => player.name.trim().length > 0).length;
@@ -421,6 +317,21 @@ export default function Home() {
       ...current,
       { id: crypto.randomUUID(), name: `Player ${current.length + 1}` },
     ]);
+  }
+
+  function applyQuickTestSetup() {
+    setPlayers(
+      ROLE_TYPES.map((_, index) => ({
+        id: crypto.randomUUID(),
+        name: `Test Player ${index + 1}`,
+      }))
+    );
+    setRoleCounts(() => {
+      const next = {} as Record<RoleType, number>;
+      for (const role of ROLE_TYPES) next[role] = 1;
+      return next;
+    });
+    setExpandedAlignments([...ALIGNMENTS]);
   }
 
   function removePlayer(id: string) {
@@ -610,6 +521,9 @@ export default function Home() {
 
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={addPlayer}>Add Player</Button>
+                    <Button variant="outline" onClick={applyQuickTestSetup}>
+                      Quick Test Setup (All Roles)
+                    </Button>
                   </div>
                 </TabsContent>
 

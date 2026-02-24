@@ -1,11 +1,12 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { useRouter } from "next/navigation";
-import { evaluateWinCondition, resolveNight } from "@/domain/engine";
+import { resolveNight } from "@/domain/engine";
 import { getDetectiveResultForRole, ROLE_DEFINITIONS, ROLE_TYPES, type RoleAbility } from "@/domain/roles";
-import { buildWakeOrder, getInitialRoleStates, validateAction } from "@/domain/rules";
-import type { NightResult, RoleStateMap, RoleType } from "@/domain/types";
+import { ROLE_ICONS as BASE_ROLE_ICONS, roleLabel } from "@/domain/role-presentation";
+import { buildWakeOrder, validateAction } from "@/domain/rules";
+import type { RoleType } from "@/domain/types";
 import type { IconType } from "react-icons";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -13,7 +14,6 @@ import {
   HeartIcon,
   PlusIcon,
   SearchIcon,
-  SettingsIcon,
   ShieldIcon,
   ShuffleIcon,
   SkullIcon,
@@ -21,53 +21,40 @@ import {
   WandSparklesIcon,
 } from "lucide-react";
 import {
-  GiAssassinPocket,
-  GiBus,
-  GiCigar,
-  GiCupidonArrow,
-  GiFedora,
-  GiHospitalCross,
-  GiKingJuMask,
-  GiMagicHat,
-  GiMailbox,
-  GiPistolGun,
-  GiPoliceOfficerHead,
-  GiPotionOfMadness,
-  GiScales,
-  GiShield,
-  GiSkullCrossedBones,
-  GiSpy,
-  GiTie,
   GiTwoCoins,
 } from "react-icons/gi";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+  createInitialSessionReducerState,
+  sessionReducer,
+  setSessionField,
+  toPersistedSession,
+  type SessionReducerState,
+} from "./session-reducer";
 import {
   clearSession,
-  createNightActions,
-  createRoleAssignments,
-  createRoleCounts,
-  loadSession,
-  saveSession,
   type NightActionState,
-  type PlayerEntry,
 } from "@/lib/session";
-
-function roleLabel(role: RoleType): string {
-  return role.replace(/([a-z])([A-Z])/g, "$1 $2");
-}
+import { useAutosaveSession, useSavedSession } from "@/hooks/use-session-persistence";
+import { useThemePreference } from "@/hooks/use-theme-preference";
+import {
+  AssignmentSlotCard,
+  CurrentNightStepPanel,
+  CurrentNightStepStatusCard,
+  DayPhasePanel,
+  type DetectivePreview,
+  MafiaTeamRosterPanel,
+  NoActiveSessionView,
+  NightSummaryPanel,
+  PlayerPickerDialog,
+  RivalMafiaRosterPanel,
+  RoleAssignmentGrid,
+  SessionPageHeader,
+  SessionPageShell,
+  SessionSettingsDialog,
+  TargetCardsPanel,
+} from "./session-ui";
 
 const MAGICIAN_CHOICE_LABELS: Record<"kill" | "save" | "none", string> = {
   kill: "Vanishing Act",
@@ -153,13 +140,6 @@ function getTargetSlotLabel(role: RoleType, index: number, magicianChoice?: "kil
 function abilityMeta(phase: "Night" | "Night 1" | "Day" | "Any", type: "Active" | "Passive" | "Triggered"): string {
   if (phase === "Any" && type === "Passive") return "Passive";
   return `${phase} - ${type}`;
-}
-
-function normalizeValidationForInProgressInput<T extends { valid: boolean; reason?: string }>(validation: T): T {
-  if (!validation.valid && validation.reason === "Invalid target count.") {
-    return { ...validation, valid: true, reason: undefined };
-  }
-  return validation;
 }
 
 function isMadeManRecruitBlockedRole(role: RoleType): boolean {
@@ -286,24 +266,8 @@ function getTeamPageMaxWidthRem(role: RoleType, maxActionTargets: number, assign
 const NO_ACTION = "__no_action__";
 
 const ROLE_ICONS: Record<RoleType, IconType> = {
+  ...BASE_ROLE_ICONS,
   Civilian: GiTwoCoins,
-  Detective: GiPoliceOfficerHead,
-  Doctor: GiHospitalCross,
-  Miller: GiTie,
-  Cupid: GiCupidonArrow,
-  BusDriver: GiBus,
-  UndercoverCop: GiSpy,
-  Grandma: GiShield,
-  Magician: GiMagicHat,
-  Postman: GiMailbox,
-  Vigilante: GiPistolGun,
-  Mafia: GiFedora,
-  Godfather: GiCigar,
-  Lawyer: GiScales,
-  MadeMan: GiAssassinPocket,
-  Bartender: GiPotionOfMadness,
-  SerialKiller: GiSkullCrossedBones,
-  RivalMafia: GiKingJuMask,
 };
 
 type PickerState = {
@@ -328,95 +292,11 @@ const DEFAULT_PICKER: PickerState = {
 
 export default function SessionPage() {
   const router = useRouter();
+  const { darkMode, setDarkMode } = useThemePreference();
 
-  const [sessionActive, setSessionActive] = useState(false);
-  const [players, setPlayers] = useState<PlayerEntry[]>([]);
-  const [roleCounts, setRoleCounts] = useState<Record<RoleType, number>>(() => createRoleCounts(ROLE_TYPES));
-  const [nightNumber, setNightNumber] = useState(1);
-  const [dayNumber, setDayNumber] = useState(0);
-  const [nightInProgress, setNightInProgress] = useState(false);
-  const [dayInProgress, setDayInProgress] = useState(false);
-  const [dayEliminationDone, setDayEliminationDone] = useState(false);
-  const [wakeIndex, setWakeIndex] = useState(0);
-  const [deadPlayerIds, setDeadPlayerIds] = useState<string[]>([]);
-  const [roleAssignments, setRoleAssignments] = useState<Record<RoleType, string[]>>(() =>
-    createRoleAssignments(ROLE_TYPES)
-  );
-  const [nightActions, setNightActions] = useState<NightActionState>(() => createNightActions(ROLE_TYPES));
-  const [roleStates, setRoleStates] = useState<RoleStateMap>(() => getInitialRoleStates());
-  const [loverPairs, setLoverPairs] = useState<[string, string][]>([]);
-  const [convertedOrigins, setConvertedOrigins] = useState<Record<string, RoleType>>({});
-  const [previousNightSnapshot, setPreviousNightSnapshot] = useState<{
-    nightNumber: number;
-    deadPlayerIds: string[];
-    roleAssignments: Record<RoleType, string[]>;
-    nightActions: NightActionState;
-    roleStates: RoleStateMap;
-    loverPairs: [string, string][];
-    convertedOrigins?: Record<string, RoleType>;
-  } | null>(null);
-  const [lastNightResult, setLastNightResult] = useState<NightResult | null>(null);
-  const [winCondition, setWinCondition] = useState<string | null>(null);
-  const [dayNomineeId, setDayNomineeId] = useState<string>("");
-  const [postmanDeliveryTargetId, setPostmanDeliveryTargetId] = useState<string>("");
-  const [awaitingPostmanDelivery, setAwaitingPostmanDelivery] = useState(false);
-  const [dayError, setDayError] = useState<string | null>(null);
-  const [dayInfo, setDayInfo] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [confirmEndSession, setConfirmEndSession] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return localStorage.getItem("theme") !== "light";
-  });
-  const [picker, setPicker] = useState<PickerState>(DEFAULT_PICKER);
-
-  useEffect(() => {
-    const saved = loadSession();
-    if (!saved || !saved.sessionActive) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSessionActive(true);
-    setPlayers(saved.players ?? []);
-    setRoleCounts(saved.roleCounts ?? createRoleCounts(ROLE_TYPES));
-    setNightNumber(saved.nightNumber ?? 1);
-    setDayNumber(saved.dayNumber ?? 0);
-    setNightInProgress(saved.nightInProgress ?? false);
-    setDayInProgress(saved.dayInProgress ?? false);
-    setDayEliminationDone(saved.dayEliminationDone ?? false);
-    setWakeIndex(saved.wakeIndex ?? 0);
-    setRoleAssignments(saved.roleAssignments ?? createRoleAssignments(ROLE_TYPES));
-    setNightActions(saved.nightActions ?? createNightActions(ROLE_TYPES));
-    setDeadPlayerIds(saved.deadPlayerIds ?? []);
-    setRoleStates(saved.roleStates ?? getInitialRoleStates());
-    setLoverPairs(saved.loverPairs ?? []);
-    setConvertedOrigins(saved.convertedOrigins ?? {});
-    setPreviousNightSnapshot(saved.previousNightSnapshot ?? null);
-    setLastNightResult(saved.lastNightResult ?? null);
-    setWinCondition(saved.winCondition ?? null);
-  }, []);
-
-  useEffect(() => {
-    if (!sessionActive) return;
-    saveSession({
-      players,
-      roleCounts,
-      nightNumber,
-      dayNumber,
-      nightInProgress,
-      dayInProgress,
-      dayEliminationDone,
-      wakeIndex,
-      sessionActive,
-      roleAssignments,
-      nightActions,
-      deadPlayerIds,
-      roleStates,
-      loverPairs,
-      convertedOrigins,
-      previousNightSnapshot,
-      lastNightResult,
-      winCondition,
-    });
-  }, [
+  const [sessionState, dispatch] = useReducer(sessionReducer, undefined, createInitialSessionReducerState);
+  const {
+    sessionActive,
     players,
     roleCounts,
     nightNumber,
@@ -425,27 +305,54 @@ export default function SessionPage() {
     dayInProgress,
     dayEliminationDone,
     wakeIndex,
-    sessionActive,
+    deadPlayerIds,
     roleAssignments,
     nightActions,
-    deadPlayerIds,
     roleStates,
     loverPairs,
     convertedOrigins,
-    previousNightSnapshot,
     lastNightResult,
     winCondition,
-  ]);
+  } = sessionState;
+  const [dayNomineeId, setDayNomineeId] = useState<string>("");
+  const [postmanDeliveryTargetId, setPostmanDeliveryTargetId] = useState<string>("");
+  const [awaitingPostmanDelivery, setAwaitingPostmanDelivery] = useState(false);
+  const [dayError, setDayError] = useState<string | null>(null);
+  const [dayInfo, setDayInfo] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmEndSession, setConfirmEndSession] = useState(false);
+  const [picker, setPicker] = useState<PickerState>(DEFAULT_PICKER);
+  const savedSession = useSavedSession();
+
+  function setSessionValue<K extends keyof SessionReducerState>(
+    field: K,
+    value: SessionReducerState[K] | ((current: SessionReducerState[K]) => SessionReducerState[K])
+  ) {
+    dispatch(setSessionField(field, value));
+  }
+
+  const setSessionActive = (value: boolean | ((current: boolean) => boolean)) =>
+    setSessionValue("sessionActive", value);
+  const setDayInProgress = (value: boolean | ((current: boolean) => boolean)) =>
+    setSessionValue("dayInProgress", value);
+  const setDayEliminationDone = (value: boolean | ((current: boolean) => boolean)) =>
+    setSessionValue("dayEliminationDone", value);
+  const setWakeIndex = (value: number | ((current: number) => number)) => setSessionValue("wakeIndex", value);
+  const setRoleAssignments = (
+    value:
+      | Record<RoleType, string[]>
+      | ((current: Record<RoleType, string[]>) => Record<RoleType, string[]>)
+  ) => setSessionValue("roleAssignments", value);
+  const setNightActions = (value: NightActionState | ((current: NightActionState) => NightActionState)) =>
+    setSessionValue("nightActions", value);
 
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-      return;
-    }
-    document.documentElement.classList.remove("dark");
-    localStorage.setItem("theme", "light");
-  }, [darkMode]);
+    const saved = savedSession;
+    if (!saved || !saved.sessionActive) return;
+    dispatch({ type: "hydrate", payload: saved });
+  }, [savedSession]);
+
+  useAutosaveSession(sessionActive ? toPersistedSession(sessionState) : null);
 
   const selectedRoles = useMemo(() => ROLE_TYPES.filter((role) => (roleCounts[role] ?? 0) > 0), [roleCounts]);
 
@@ -517,13 +424,12 @@ export default function SessionPage() {
   useEffect(() => {
     if (!nightInProgress) return;
     if (stepOrder.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setNightInProgress(false);
-      setWakeIndex(0);
+      dispatch(setSessionField("nightInProgress", false));
+      dispatch(setSessionField("wakeIndex", 0));
       return;
     }
     if (wakeIndex >= stepOrder.length) {
-      setWakeIndex(0);
+      dispatch(setSessionField("wakeIndex", 0));
     }
   }, [nightInProgress, wakeIndex, stepOrder.length]);
 
@@ -706,86 +612,119 @@ export default function SessionPage() {
 
   const currentStepComplete = currentRole ? isStepComplete(currentRole) : false;
   const allStepsComplete = stepOrder.length > 0 && stepOrder.every((role) => isStepComplete(role));
-  const currentStepValidation = useMemo(() => {
-    if (!currentRole) return { valid: true as const };
-    if (isRoleSuppressedByRecruit) return { valid: true as const };
-    if (currentRole === "Vigilante" && nightNumber === 1) return { valid: true as const };
-    if (currentRole === "Vigilante" && roleStates.Vigilante.lockedOut) return { valid: true as const };
+  const currentStepIssues = useMemo(() => {
+    if (!currentRole) return [] as string[];
+    const issues: string[] = [];
+    const addIssue = (message?: string) => {
+      if (!message) return;
+      if (!issues.includes(message)) issues.push(message);
+    };
+
+    if (isNight1) {
+      const isRoleAssignedInMemo = (role: RoleType): boolean => {
+        const count = roleCounts[role] ?? 0;
+        if (count === 0) return true;
+        const assigned = roleAssignments[role] ?? [];
+        return assigned.filter((id) => id && id.trim().length > 0).length >= count;
+      };
+      const assignmentsComplete =
+        currentRole === "Mafia"
+          ? (["Godfather", "Mafia", "MadeMan", "UndercoverCop"] as const).every((role) => isRoleAssignedInMemo(role))
+          : isRoleAssignedInMemo(currentRole);
+      if (!assignmentsComplete) {
+        addIssue(
+          currentRole === "Mafia"
+            ? "Assign all Mafia team roles before continuing."
+            : "Assign all players for this role before continuing."
+        );
+      }
+    }
+
+    if (isRoleSuppressedByRecruit) return issues;
+    if (currentRole === "Vigilante" && nightNumber === 1) return issues;
+    if (currentRole === "Vigilante" && roleStates.Vigilante.lockedOut) return issues;
+
     if (currentRole === "Mafia") {
       const mafiaTargets = (nightActions.Mafia?.targetIds ?? []).slice(0, ROLE_DEFINITIONS.Mafia.action?.targetCount ?? 1);
-      const mafiaValidation = normalizeValidationForInProgressInput(
-        validateAction("Mafia", mafiaTargets, { nightNumber, roleStates }, nightActions.Mafia?.metadata)
-      );
-      if (!mafiaValidation.valid) return mafiaValidation;
+      const mafiaValidation = validateAction("Mafia", mafiaTargets, { nightNumber, roleStates }, nightActions.Mafia?.metadata);
+      if (!mafiaValidation.valid) addIssue(mafiaValidation.reason);
+
       const recruitAvailable = (roleCounts.MadeMan ?? 0) > 0 && !roleStates.MadeMan.usedRecruit;
-      if (!recruitAvailable) return { valid: true as const };
+      if (!recruitAvailable) return issues;
       const recruitTarget = nightActions.MadeMan?.targetIds?.[0];
-      if (!recruitTarget || recruitTarget === NO_ACTION) return { valid: true as const };
+      if (!recruitTarget || recruitTarget === NO_ACTION) return issues;
+
       const recruitValidation = validateAction(
         "MadeMan",
         [recruitTarget],
         { nightNumber, roleStates },
         nightActions.MadeMan?.metadata
       );
-      if (!recruitValidation.valid) return recruitValidation;
+      if (!recruitValidation.valid) addIssue(recruitValidation.reason);
+
       const effectiveTarget = effectiveRecruitTargetId;
-      if (!effectiveTarget) return { valid: true as const };
+      if (!effectiveTarget) return issues;
       const effectiveRole = effectiveRoleByPlayer[effectiveTarget] ?? "Civilian";
       if (isMadeManRecruitBlockedRole(effectiveRole)) {
-        return {
-          valid: false as const,
-          reason: "Made Man cannot recruit Mafia, Godfather, Made Man, or Undercover Cop.",
-        };
+        addIssue("Made Man cannot recruit Mafia, Godfather, Made Man, or Undercover Cop.");
       }
-      return { valid: true as const };
+      return issues;
     }
-    if (currentActionCount <= 0) return { valid: true as const };
-    return normalizeValidationForInProgressInput(
-      validateAction(
-        currentRole,
-        (nightActions[currentRole]?.targetIds ?? []).slice(0, currentActionCount),
-        { nightNumber, roleStates },
-        nightActions[currentRole]?.metadata
-      )
+
+    if (currentActionCount <= 0) return issues;
+
+    if (currentRole === "Magician" && !magicianOutOfActions) {
+      const choice = nightActions.Magician?.metadata?.choice;
+      if (!choice) {
+        addIssue("Select an ability before continuing.");
+        return issues;
+      }
+      if (choice === "none") return issues;
+    }
+
+    const actionValidation = validateAction(
+      currentRole,
+      (nightActions[currentRole]?.targetIds ?? []).slice(0, currentActionCount),
+      { nightNumber, roleStates },
+      nightActions[currentRole]?.metadata
     );
+    if (!actionValidation.valid) addIssue(actionValidation.reason);
+
+    return issues;
   }, [
     currentActionCount,
     currentRole,
     effectiveRecruitTargetId,
     effectiveRoleByPlayer,
+    isNight1,
     isRoleSuppressedByRecruit,
+    magicianOutOfActions,
     nightActions,
     nightNumber,
-    roleCounts.MadeMan,
+    roleAssignments,
+    roleCounts,
     roleStates,
   ]);
+  const currentStepValidation = useMemo(
+    () => ({
+      valid: currentStepIssues.length === 0,
+      reason: currentStepIssues[0],
+      reasons: currentStepIssues,
+    }),
+    [currentStepIssues]
+  );
 
   function startNight() {
-    setRoleStates((current) => {
-      if (!current.Vigilante.pendingLockout) return current;
-      return {
-        ...current,
-        Vigilante: {
-          ...current.Vigilante,
-          lockedOut: true,
-          pendingLockout: false,
-        },
-      };
-    });
-    setNightActions(createNightActions(ROLE_TYPES));
-    setWakeIndex(0);
-    setLastNightResult(null);
-    setDayInProgress(false);
-    setDayEliminationDone(false);
+    dispatch({ type: "start-night" });
     setDayNomineeId("");
     setPostmanDeliveryTargetId("");
     setAwaitingPostmanDelivery(false);
     setDayError(null);
-    setNightInProgress(true);
+    setDayInfo(null);
   }
 
   function completeNight() {
-    setPreviousNightSnapshot({
+    const snapshot: NonNullable<SessionReducerState["previousNightSnapshot"]> = {
       nightNumber,
       deadPlayerIds: [...deadPlayerIds],
       roleAssignments: ROLE_TYPES.reduce((acc, role) => {
@@ -803,7 +742,7 @@ export default function SessionPage() {
       roleStates: structuredClone(roleStates),
       loverPairs: loverPairs.map((pair) => [pair[0], pair[1]] as [string, string]),
       convertedOrigins: { ...convertedOrigins },
-    });
+    };
 
     const output = resolveNight({
       nightNumber,
@@ -814,39 +753,16 @@ export default function SessionPage() {
       roleStates,
       loverPairs,
     });
-
-    setDeadPlayerIds(output.nextDeadPlayerIds);
-    setRoleAssignments(output.nextRoleAssignments);
-    setRoleStates(output.nextRoleStates);
-    setLoverPairs(output.nextLoverPairs);
-    setLastNightResult(output.result);
-    if ((output.result.recruitDetails ?? []).length > 0) {
-      setConvertedOrigins((current) => {
-        const next = { ...current };
-        for (const detail of output.result.recruitDetails ?? []) {
-          next[detail.playerId] = detail.fromRole;
-        }
-        return next;
-      });
-    }
-
-    const winner = evaluateWinCondition(players, output.nextDeadPlayerIds, output.nextRoleAssignments);
-    setWinCondition(winner);
-
-    setNightInProgress(false);
-    setWakeIndex(0);
-    setDayNumber(nightNumber + 1);
-    setDayInProgress(false);
-    setDayEliminationDone(false);
+    dispatch({ type: "complete-night", payload: { output, snapshot } });
     setDayNomineeId("");
     setPostmanDeliveryTargetId("");
+    setAwaitingPostmanDelivery(false);
     setDayError(null);
-    setNightNumber((current) => current + 1);
+    setDayInfo(null);
   }
 
   function beginDay() {
-    setDayInProgress(true);
-    setDayEliminationDone(false);
+    dispatch({ type: "begin-day" });
     setDayNomineeId("");
     setPostmanDeliveryTargetId("");
     setAwaitingPostmanDelivery(false);
@@ -888,8 +804,15 @@ export default function SessionPage() {
     }
 
     if (dayImmunitySet.has(dayNomineeId)) {
-      setDayEliminationDone(true);
-      setDayInfo(`${getPlayerName(dayNomineeId)} had Daytime Defense. The hang attempt was wasted.`);
+      const info = `${getPlayerName(dayNomineeId)} had Daytime Defense. The hang attempt was wasted.`;
+      dispatch({
+        type: "resolve-day-elimination",
+        payload: {
+          timelineDetail: info,
+          dayNumber: displayDayNumber,
+        },
+      });
+      setDayInfo(info);
       setDayNomineeId("");
       setPostmanDeliveryTargetId("");
       setAwaitingPostmanDelivery(false);
@@ -931,15 +854,15 @@ export default function SessionPage() {
     const nextDead = new Set(deadPlayerIds);
     for (const id of deaths) nextDead.add(id);
     const nextDeadIds = Array.from(nextDead);
-    setDeadPlayerIds(nextDeadIds);
-
-    if (postmanHung) {
-      setRoleStates((current) => ({ ...current, Postman: { ...current.Postman, usedDelivery: true } }));
-    }
-
-    const winner = evaluateWinCondition(players, nextDeadIds, roleAssignments);
-    setWinCondition(winner);
-    setDayEliminationDone(true);
+    dispatch({
+      type: "resolve-day-elimination",
+      payload: {
+        nextDeadPlayerIds: nextDeadIds,
+        markPostmanDeliveryUsed: postmanHung,
+        timelineDetail: dayResolution,
+        dayNumber: displayDayNumber,
+      },
+    });
     setDayInfo(dayResolution);
     setDayNomineeId("");
     setPostmanDeliveryTargetId("");
@@ -949,7 +872,7 @@ export default function SessionPage() {
   function skipDayHang() {
     setDayError(null);
     setDayInfo("Town skipped the daytime hang.");
-    setDayEliminationDone(true);
+    dispatch({ type: "skip-day-hang", payload: { dayNumber: displayDayNumber } });
     setDayNomineeId("");
     setPostmanDeliveryTargetId("");
     setAwaitingPostmanDelivery(false);
@@ -966,57 +889,7 @@ export default function SessionPage() {
   }
 
   function backToPreviousNight() {
-    if (previousNightSnapshot) {
-      setNightNumber(previousNightSnapshot.nightNumber);
-      setDeadPlayerIds([...previousNightSnapshot.deadPlayerIds]);
-      setRoleAssignments(
-        ROLE_TYPES.reduce((acc, role) => {
-          acc[role] = [...(previousNightSnapshot.roleAssignments[role] ?? [])];
-          return acc;
-        }, {} as Record<RoleType, string[]>)
-      );
-      setNightActions(
-        ROLE_TYPES.reduce((acc, role) => {
-          const action = previousNightSnapshot.nightActions[role] ?? { targetIds: [] };
-          acc[role] = {
-            targetIds: [...(action.targetIds ?? [])],
-            metadata: action.metadata ? { ...action.metadata } : undefined,
-          };
-          return acc;
-        }, {} as NightActionState)
-      );
-      setRoleStates(structuredClone(previousNightSnapshot.roleStates));
-      setLoverPairs(previousNightSnapshot.loverPairs.map((pair) => [pair[0], pair[1]] as [string, string]));
-      setConvertedOrigins({ ...(previousNightSnapshot.convertedOrigins ?? {}) });
-      setWinCondition(null);
-    } else {
-      const targetNight = Math.max(1, nightNumber - 1);
-      setNightNumber(targetNight);
-      if (lastNightResult) {
-        const rolledBackDeaths = new Set(lastNightResult.deaths ?? []);
-        setDeadPlayerIds((current) => current.filter((id) => !rolledBackDeaths.has(id)));
-        const rolledBackRecruits = new Set(lastNightResult.recruits ?? []);
-        if (rolledBackRecruits.size > 0) {
-          setConvertedOrigins((current) =>
-            Object.fromEntries(Object.entries(current).filter(([playerId]) => !rolledBackRecruits.has(playerId)))
-          );
-        }
-      }
-      if (targetNight === 1) {
-        // Legacy fallback: if no snapshot exists, reset one-time Night 1 state
-        // so Cupid and other Night 1 setup actions can be replayed.
-        setRoleStates(getInitialRoleStates());
-        setLoverPairs([]);
-      }
-      setNightActions(createNightActions(ROLE_TYPES));
-      setWinCondition(null);
-    }
-    setDayNumber(0);
-    setDayInProgress(false);
-    setDayEliminationDone(false);
-    setNightInProgress(true);
-    setWakeIndex(0);
-    setLastNightResult(null);
+    dispatch({ type: "rollback-night" });
     setDayNomineeId("");
     setPostmanDeliveryTargetId("");
     setAwaitingPostmanDelivery(false);
@@ -1102,56 +975,31 @@ export default function SessionPage() {
     const readOnly = options?.readOnly ?? false;
 
     return (
-      <div className="space-y-3">
-        {showRoleHeading && <p className="text-sm font-semibold">{roleLabel(role)}</p>}
-        <div className={getAssignmentGridClass(count)}>
-          {Array.from({ length: count }).map((_, index) => {
-            const assignedId = roleAssignments[role]?.[index] ?? "";
-            const assignedName = getPlayerName(assignedId);
-            const isAssignedDead = Boolean(assignedId && deadSet.has(assignedId));
-            const slotLabel = count > 1 ? `${roleLabel(role)} ${index + 1}` : "Assign Player";
-            const RoleIcon = ROLE_ICONS[role];
-
-            return (
-              <button
-                key={`${role}-${index}`}
-                type="button"
-                onClick={() => {
-                  if (!readOnly) openAssignmentPicker(role, index);
-                }}
-                disabled={readOnly}
-                className={cn(
-                  "flex h-40 w-24 sm:h-52 sm:w-36 flex-col items-center justify-center rounded-xl border p-2.5 sm:p-4 text-center transition",
-                  readOnly ? "cursor-default" : "",
-                  isAssignedDead ? "border-border/50 bg-muted/30 text-muted-foreground grayscale-[0.35] opacity-75" : "",
-                  assignedId
-                    ? "border-border/70 bg-background/60"
-                    : "border-dashed border-border/80 bg-background/30 hover:bg-background/50"
-                )}
-              >
-                <div className="grid size-16 place-items-center">
-                  {assignedId || readOnly ? (
-                    isAssignedDead ? (
-                      <SkullIcon className="h-12 w-12 text-red-300" />
-                    ) : (
-                      <RoleIcon className="h-12 w-12 text-muted-foreground" />
-                    )
-                  ) : (
-                    <PlusIcon className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </div>
-                {!assignedId && <p className="mt-3 text-sm text-muted-foreground">{readOnly ? "Unassigned" : slotLabel}</p>}
-                {assignedId && <p className="mt-1 w-full break-words text-sm font-semibold leading-tight">{assignedName}</p>}
-                {isAssignedDead && (
-                  <Badge variant="outline" className="mt-1 border-red-400/60 text-[10px] text-red-200">
-                    Dead
-                  </Badge>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <RoleAssignmentGrid
+        role={role}
+        count={count}
+        showRoleHeading={showRoleHeading}
+        gridClassName={getAssignmentGridClass(count)}
+        renderSlot={(index) => {
+          const assignedId = roleAssignments[role]?.[index] ?? "";
+          const assignedName = getPlayerName(assignedId);
+          const isAssignedDead = Boolean(assignedId && deadSet.has(assignedId));
+          const slotLabel = count > 1 ? `${roleLabel(role)} ${index + 1}` : "Assign Player";
+          return (
+            <AssignmentSlotCard
+              role={role}
+              assignedId={assignedId}
+              assignedName={assignedName}
+              isAssignedDead={isAssignedDead}
+              readOnly={readOnly}
+              emptyLabel={slotLabel}
+              onClick={() => {
+                if (!readOnly) openAssignmentPicker(role, index);
+              }}
+            />
+          );
+        }}
+      />
     );
   }
 
@@ -1163,53 +1011,25 @@ export default function SessionPage() {
     const assignedId = roleAssignments[role]?.[index] ?? "";
     const assignedName = getPlayerName(assignedId);
     const isAssignedDead = Boolean(assignedId && deadSet.has(assignedId));
-    const RoleIcon = ROLE_ICONS[role];
     const unassignedLabel = options?.unassignedLabel ?? `Assign ${roleLabel(role)}`;
     const readOnly = options?.readOnly ?? false;
     const converted = options?.converted ?? false;
     const convertedFromRole = options?.convertedFromRole;
 
     return (
-      <button
-        key={`${role}-${index}`}
-        type="button"
+      <AssignmentSlotCard
+        role={role}
+        assignedId={assignedId}
+        assignedName={assignedName}
+        isAssignedDead={isAssignedDead}
+        readOnly={readOnly}
+        emptyLabel={unassignedLabel}
         onClick={() => {
           if (!readOnly) openAssignmentPicker(role, index);
         }}
-        disabled={readOnly}
-        className={cn(
-          "flex h-40 w-24 sm:h-52 sm:w-36 flex-col items-center justify-center rounded-xl border p-2.5 sm:p-4 text-center transition",
-          readOnly ? "cursor-default" : "",
-          isAssignedDead ? "border-border/50 bg-muted/30 text-muted-foreground grayscale-[0.35] opacity-75" : "",
-          assignedId
-            ? "border-border/70 bg-background/60"
-            : "border-dashed border-border/80 bg-background/30 hover:bg-background/50"
-        )}
-      >
-        <div className="grid size-16 place-items-center">
-          {assignedId || readOnly ? (
-            isAssignedDead ? (
-              <SkullIcon className="h-12 w-12 text-red-300" />
-            ) : (
-              <RoleIcon className="h-12 w-12 text-muted-foreground" />
-            )
-          ) : (
-            <PlusIcon className="h-4 w-4 text-muted-foreground" />
-          )}
-        </div>
-        {!assignedId && <p className="mt-3 text-sm text-muted-foreground">{readOnly ? "Unassigned" : unassignedLabel}</p>}
-        {assignedId && <p className="mt-1 w-full break-words text-sm font-semibold leading-tight">{assignedName}</p>}
-        {assignedId && converted && (
-          <Badge variant="outline" className="mt-1 border-amber-400/60 text-[10px] text-amber-200">
-            {convertedFromRole ? `Converted from ${roleLabel(convertedFromRole)}` : "Converted"}
-          </Badge>
-        )}
-        {isAssignedDead && (
-          <Badge variant="outline" className="mt-1 border-red-400/60 text-[10px] text-red-200">
-            Dead
-          </Badge>
-        )}
-      </button>
+        converted={converted}
+        convertedFromRole={convertedFromRole}
+      />
     );
   }
 
@@ -1222,38 +1042,23 @@ export default function SessionPage() {
     const activeUniqueRoles = uniqueRoles.filter((role) => (roleCounts[role] ?? 0) > 0);
 
     return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className={getCompactGridColsClass(activeUniqueRoles.length, 3)}>
-            {activeUniqueRoles.map((role) => (
-              <div key={`${role}-core`} className="space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
-                <p className="text-sm font-semibold">{roleLabel(role)}</p>
-                {renderAssignmentCard(role, 0, { unassignedLabel: "Assign Player", readOnly })}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
-          <p className="text-sm font-semibold">Mafia Members</p>
-          {mafiaCount > 0 ? (
-            <div className={getCompactGridColsClass(mafiaCount, 3)}>
-              {Array.from({ length: mafiaCount }).map((_, index) => {
-                const isConvertedSlot = index >= (roleCounts.Mafia ?? 0);
-                const assignedId = roleAssignments.Mafia?.[index] ?? "";
-                return renderAssignmentCard("Mafia", index, {
-                  unassignedLabel: `Mafia ${index + 1}`,
-                  readOnly,
-                  converted: isConvertedSlot,
-                  convertedFromRole: isConvertedSlot ? convertedOrigins[assignedId] : undefined,
-                });
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No Mafia members configured.</p>
-          )}
-        </div>
-      </div>
+      <MafiaTeamRosterPanel
+        activeUniqueRoles={activeUniqueRoles}
+        mafiaCount={mafiaCount}
+        compactGridForUnique={getCompactGridColsClass(activeUniqueRoles.length, 3)}
+        compactGridForMafia={getCompactGridColsClass(mafiaCount, 3)}
+        renderUniqueRoleCard={(role) => renderAssignmentCard(role, 0, { unassignedLabel: "Assign Player", readOnly })}
+        renderMafiaCard={(index) => {
+          const isConvertedSlot = index >= (roleCounts.Mafia ?? 0);
+          const assignedId = roleAssignments.Mafia?.[index] ?? "";
+          return renderAssignmentCard("Mafia", index, {
+            unassignedLabel: `Mafia ${index + 1}`,
+            readOnly,
+            converted: isConvertedSlot,
+            convertedFromRole: isConvertedSlot ? convertedOrigins[assignedId] : undefined,
+          });
+        }}
+      />
     );
   }
 
@@ -1261,20 +1066,13 @@ export default function SessionPage() {
     const rivalCount = roleCounts.RivalMafia ?? 0;
 
     return (
-      <div className="space-y-4">
-        <div className="w-full md:w-fit space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
-          <p className="text-sm font-semibold">Rival Mafia Members</p>
-          {rivalCount > 0 ? (
-            <div className={getCompactGridColsClass(rivalCount, 3)}>
-              {Array.from({ length: rivalCount }).map((_, index) =>
-                renderAssignmentCard("RivalMafia", index, { unassignedLabel: `Rival Mafia ${index + 1}`, readOnly })
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No Rival Mafia members configured.</p>
-          )}
-        </div>
-      </div>
+      <RivalMafiaRosterPanel
+        rivalCount={rivalCount}
+        compactGridClass={getCompactGridColsClass(rivalCount, 3)}
+        renderRivalCard={(index) =>
+          renderAssignmentCard("RivalMafia", index, { unassignedLabel: `Rival Mafia ${index + 1}`, readOnly })
+        }
+      />
     );
   }
 
@@ -1290,7 +1088,7 @@ export default function SessionPage() {
       actionCount >= 2
         ? "mx-auto grid w-full justify-items-center grid-cols-2 sm:w-fit gap-3"
         : "mx-auto grid w-full justify-items-center grid-cols-1 sm:w-fit gap-3";
-    const detectivePreview =
+    const detectivePreview: DetectivePreview =
       role === "Detective"
         ? (() => {
             if (isRoleSuppressedByRecruit) {
@@ -1331,112 +1129,36 @@ export default function SessionPage() {
         : null;
 
     return (
-      <div className="space-y-3">
-        <div>
-          <div>
-            <div className="flex items-start gap-2">
-              <span className="grid size-5 shrink-0 place-items-center rounded border border-border/60 bg-background/60">
-                <AbilityRoleIcon className="h-3.5 w-3.5 text-muted-foreground" />
-              </span>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold">{activeAbility?.name ?? getTargetSectionTitle(role)}</p>
-                  {activeAbility && (
-                    <Badge variant="outline" className="shrink-0 text-[10px]">
-                      Active
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            </div>
-            {activeAbility && <p className="text-xs text-muted-foreground">{activeAbility.description}</p>}
-          </div>
-        </div>
-        <div className={targetGridClass}>
-          {Array.from({ length: actionCount }).map((_, index) => {
-            const targetId = nightActions[role]?.targetIds?.[index] ?? "";
-            const hasTarget = Boolean(targetId && targetId !== NO_ACTION);
-            const slotLabel = getTargetSlotLabel(role, index, magicianChoice);
-            const targetName = hasTarget
-              ? getPlayerName(targetId)
-              : targetId === NO_ACTION
-                ? "No action"
-                : slotLabel;
-            const showSelectedTarget = hasTarget || targetId === NO_ACTION;
-            const disabled = vigilanteLockedNight1;
-
-            return (
-              <button
-                key={`${role}-target-${index}`}
-                type="button"
-                onClick={() => {
-                  if (!disabled) openTargetPicker(role, index);
-                }}
-                disabled={disabled}
-                className={cn(
-                  "flex h-40 w-24 sm:h-52 sm:w-36 flex-col items-center justify-center rounded-xl border p-2.5 sm:p-4 text-center transition",
-                  disabled ? "cursor-not-allowed border-border/60 bg-background/30 opacity-55" : "",
-                  hasTarget || targetId === NO_ACTION
-                    ? "border-border/70 bg-background/60"
-                    : "border-dashed border-border/80 bg-background/30 hover:bg-background/50"
-                )}
-              >
-                <div className="grid size-16 place-items-center">
-                  <TargetIcon className="h-12 w-12 text-muted-foreground" />
-                </div>
-                <p className="mt-3 text-sm text-muted-foreground">{slotLabel}</p>
-                {disabled ? (
-                  <p className="mt-1 text-sm font-semibold leading-tight">Unavailable Night 1</p>
-                ) : (
-                  showSelectedTarget && <p className="mt-1 w-full break-words text-sm font-semibold leading-tight">{targetName}</p>
-                )}
-              </button>
-            );
-          })}
-        </div>
-        {detectivePreview && (
-          <div className="rounded-xl border border-border/70 bg-background/40 p-3">
-            {detectivePreview.result ? (
-              <>
-                <p className="text-sm font-semibold">
-                  Result: {detectivePreview.result}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {detectivePreview.redirected
-                    ? `You selected ${detectivePreview.selectedName}. Bus Driver swapped ${detectivePreview.swapAName} and ${detectivePreview.swapBName}, so the investigation resolved to ${detectivePreview.resolvedName}. ${detectivePreview.resolvedName} is ${detectivePreview.resolvedRole} and appears ${detectivePreview.result}.`
-                    : `${detectivePreview.resolvedName} is ${detectivePreview.resolvedRole}.`}
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-semibold">Result: None</p>
-                <p className="text-xs text-muted-foreground">
-                  Detective was converted by Mafia recruitment this night. Wake the role as normal for secrecy, but this action is ignored.
-                </p>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <TargetCardsPanel
+        role={role}
+        actionCount={actionCount}
+        activeAbility={activeAbility}
+        sectionTitle={getTargetSectionTitle(role)}
+        targetIcon={TargetIcon}
+        abilityRoleIcon={AbilityRoleIcon}
+        targetGridClass={targetGridClass}
+        getSlotLabel={(index) => getTargetSlotLabel(role, index, magicianChoice)}
+        getDisplayNameForSlot={(index) => {
+          const targetId = nightActions[role]?.targetIds?.[index] ?? "";
+          const hasTarget = Boolean(targetId && targetId !== NO_ACTION);
+          if (vigilanteLockedNight1) return null;
+          if (hasTarget) return getPlayerName(targetId);
+          if (targetId === NO_ACTION) return "No action";
+          return null;
+        }}
+        isSlotSelected={(index) => {
+          const targetId = nightActions[role]?.targetIds?.[index] ?? "";
+          return Boolean(targetId && (targetId === NO_ACTION || targetId !== ""));
+        }}
+        isSlotDisabled={() => vigilanteLockedNight1}
+        onOpenTargetSlot={(index) => openTargetPicker(role, index)}
+        detectivePreview={detectivePreview}
+      />
     );
   }
 
   if (!sessionActive) {
-    return (
-      <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
-        <div className="relative mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-10 md:px-8">
-          <Card className="border-border/60 bg-card/70 backdrop-blur">
-            <CardHeader>
-              <CardTitle>No Active Session</CardTitle>
-              <CardDescription>Return to setup to start a new game session.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => router.push("/")}>Back to Setup</Button>
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    );
+    return <NoActiveSessionView onBack={() => router.push("/")} />;
   }
 
   const currentOtherAbilities =
@@ -1483,49 +1205,38 @@ export default function SessionPage() {
     : [];
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-28 top-8 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
-        <div className="absolute right-0 top-1/3 h-80 w-80 rounded-full bg-amber-500/10 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-red-500/10 blur-3xl" />
-      </div>
+    <SessionPageShell
+      maxWidthRem={activePageMaxWidthRem}
+      header={
+        <SessionPageHeader
+          title={
+            dayInProgress
+              ? `Day ${displayDayNumber}`
+              : showingNightSummary
+                ? `Night ${summaryNightNumber} Summary`
+                : `Night ${nightNumber}`
+          }
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      }
+    >
+      {winCondition && (
+        <Card className="border-green-500/40 bg-green-500/10">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle>Game Over</CardTitle>
+              <Button variant="outline" onClick={endSession}>
+                Back to Setup
+              </Button>
+            </div>
+            <CardDescription>{winCondition}</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
-      <div
-        className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10"
-        style={activePageMaxWidthRem ? { maxWidth: `${activePageMaxWidthRem}rem` } : undefined}
-      >
-        <header className="rounded-2xl border border-border/60 bg-card/60 p-4 backdrop-blur md:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">
-              {dayInProgress
-                ? `Day ${displayDayNumber}`
-                : showingNightSummary
-                  ? `Night ${summaryNightNumber} Summary`
-                  : `Night ${nightNumber}`}
-            </h1>
-            <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
-              <SettingsIcon className="h-4 w-4" />
-            </Button>
-          </div>
-        </header>
-
-        {winCondition && (
-          <Card className="border-green-500/40 bg-green-500/10">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle>Game Over</CardTitle>
-                <Button variant="outline" onClick={endSession}>
-                  Back to Setup
-                </Button>
-              </div>
-              <CardDescription>{winCondition}</CardDescription>
-            </CardHeader>
-          </Card>
-        )}
-
-        <section className="space-y-6">
-          <Card className="border-border/60 bg-card/70 backdrop-blur">
-            <CardHeader>
+      <section className="space-y-6">
+        <Card className="border-border/60 bg-card/70 backdrop-blur">
+          <CardHeader>
               {nightInProgress && currentRole ? (
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
@@ -1565,600 +1276,119 @@ export default function SessionPage() {
               )}
 
               {nightInProgress && currentRole && (
-                <div className="space-y-5">
-                  {isTeamStep ? (
-                    <div className={getTeamStepColumnsClass(currentRole, currentAssignmentCount)}>
-                      <div className="min-w-0 w-full md:w-fit space-y-4">
-                        <div>
-                          <p className="text-base font-semibold">Role Assignment</p>
-                          {isNight1 && <p className="text-xs text-muted-foreground">{getAssignmentPrompt(currentRole)}</p>}
-                          {!isNight1 && (
-                            <p className="text-xs text-muted-foreground">Assignments are locked after Night 1.</p>
-                          )}
-                        </div>
-                        <div className="space-y-5">
-                          {currentRole === "Mafia" ? (
-                            renderMafiaTeamRoster(!isNight1)
-                          ) : (
-                            renderRivalMafiaTeamRoster(!isNight1)
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="min-w-0 space-y-3">
-                        <div>
-                          <p className="text-base font-semibold">Abilities</p>
-                          <p className="text-xs text-muted-foreground">
-                            {currentRole === "Mafia"
-                              ? "Mafia team abilities and passives."
-                              : "Rival Mafia team abilities and passives."}
-                          </p>
-                        </div>
-                        <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-                          {currentRole === "Mafia" ? renderTargetCards("Mafia") : renderTargetCards("RivalMafia")}
-                        </div>
-
-                        {currentRole === "Mafia" && (roleCounts.MadeMan ?? 0) > 0 && (
-                          <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-                            {mafiaRecruitAvailable ? (
-                              renderTargetCards("MadeMan")
-                            ) : (
-                              <p className="text-sm text-muted-foreground">
-                                {mafiaRecruitUsed ? "Recruitment has already been used." : "Recruitment unavailable."}
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {teamOtherAbilities.map(({ sourceRole, ability }) => (
-                          <div
-                            key={`${sourceRole}-${ability.name}`}
-                            className="space-y-1 rounded-xl border border-border/70 bg-background/40 p-4"
-                          >
-                            <div className="flex items-start gap-2">
-                              <span className="grid size-5 shrink-0 place-items-center rounded border border-border/60 bg-background/60">
-                                {(() => {
-                                  const AbilityRoleIcon = ROLE_ICONS[sourceRole];
-                                  return <AbilityRoleIcon className="h-3.5 w-3.5 text-muted-foreground" />;
-                                })()}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="text-sm font-semibold">{ability.name}</p>
-                                  <Badge variant="outline" className="shrink-0 text-[10px]">
-                                    {abilityMeta(ability.activation.phase, ability.activation.type)}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-                            <p className="text-xs text-muted-foreground">{ability.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className={getStepperColumnsClass(currentActionCount, currentAssignmentCount)}>
-                      <div className="min-w-0 space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-                        <div>
-                          <p className="text-base font-semibold">Role Assignment</p>
-                          {isNight1 && <p className="text-xs text-muted-foreground">{getAssignmentPrompt(currentRole)}</p>}
-                          {!isNight1 && (
-                            <p className="text-xs text-muted-foreground">Assignments are locked after Night 1.</p>
-                          )}
-                        </div>
-
-                        {(roleCounts[currentRole] ?? 0) > 0 ? (
-                          <div>{renderRoleAssignmentCards(currentRole, { readOnly: !isNight1 })}</div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            No players configured for this role.
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="min-w-0 space-y-3">
-                        <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-                          {currentRole === "Magician" && (
-                            <div className="space-y-2">
-                              <p className="text-sm font-semibold">Choose Ability</p>
-                              {magicianOutOfActions ? (
-                                <div className="rounded-lg border border-border/70 bg-background/50 p-3">
-                                  <p className="text-sm font-medium">No actions remaining.</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    Vanishing Act and Escape Trick have both been used.
-                                  </p>
-                                </div>
-                              ) : (
-                                <select
-                                  value={nightActions.Magician?.metadata?.choice ?? ""}
-                                  onChange={(event) =>
-                                    updateNightChoice("Magician", event.target.value as "kill" | "save" | "none")
-                                  }
-                                  className="h-11 w-full rounded-xl border border-border/70 bg-background px-3 text-sm font-medium outline-none shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/40"
-                                >
-                                  <option value="" disabled>
-                                    Select ability
-                                  </option>
-                                  {!roleStates.Magician.usedKill && (
-                                    <option value="kill">{MAGICIAN_CHOICE_LABELS.kill}</option>
-                                  )}
-                                  {!roleStates.Magician.usedSave && (
-                                    <option value="save">{MAGICIAN_CHOICE_LABELS.save}</option>
-                                  )}
-                                  <option value="none">No Action</option>
-                                </select>
-                              )}
-                            </div>
-                          )}
-
-                          {currentActionCount > 0 ? (
-                            renderTargetCards(currentRole)
-                          ) : currentRole === "Magician" && magicianOutOfActions ? null : (
-                            <p className="text-sm text-muted-foreground">
-                              No target selection for this role.
-                            </p>
-                          )}
-                        </div>
-
-                        {currentOtherAbilities.map((ability) => (
-                          <div
-                            key={ability.name}
-                            className="space-y-1 rounded-xl border border-border/70 bg-background/40 p-4"
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-sm font-semibold">{ability.name}</p>
-                              <Badge variant="outline" className="shrink-0 text-[10px]">
-                                {abilityMeta(ability.activation.phase, ability.activation.type)}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground">{ability.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {!currentStepValidation.valid && (
-                    <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100">
-                      {currentStepValidation.reason ??
-                        "This step has invalid selections. Update assignments or targets to continue."}
-                    </div>
-                  )}
-
-                  {isRoleSuppressedByRecruit && (
-                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-100">
-                      This role was converted by Mafia recruitment this night. For secrecy, still wake the role and
-                      collect a target, but the action will be ignored.
-                    </div>
-                  )}
-
-                  {currentRole === "Vigilante" && roleStates.Vigilante.lockedOut && (
-                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-100">
-                      Vigilante is locked out after killing a Town player. No action can be taken.
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>{wakeIndex > 0 && <Button variant="outline" onClick={previousStep}>Previous</Button>}</div>
-                    <div>
-                      {wakeIndex >= stepOrder.length - 1 ? (
-                        <Button variant="secondary" onClick={completeNight} disabled={!allStepsComplete}>
-                          End Night {nightNumber}
-                        </Button>
-                      ) : (
-                        <Button onClick={nextStep} disabled={!currentStepComplete}>
-                          Next
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <CurrentNightStepPanel
+                  currentRole={currentRole}
+                  isTeamStep={isTeamStep}
+                  currentActionCount={currentActionCount}
+                  currentAssignmentCount={currentAssignmentCount}
+                  isNight1={isNight1}
+                  getAssignmentPrompt={getAssignmentPrompt}
+                  getTeamStepColumnsClass={getTeamStepColumnsClass}
+                  getStepperColumnsClass={getStepperColumnsClass}
+                  renderMafiaTeamRoster={renderMafiaTeamRoster}
+                  renderRivalMafiaTeamRoster={renderRivalMafiaTeamRoster}
+                  renderTargetCards={renderTargetCards}
+                  renderRoleAssignmentCards={renderRoleAssignmentCards}
+                  roleCounts={roleCounts}
+                  mafiaRecruitAvailable={mafiaRecruitAvailable}
+                  mafiaRecruitUsed={mafiaRecruitUsed}
+                  teamOtherAbilities={teamOtherAbilities}
+                  currentOtherAbilities={currentOtherAbilities}
+                  abilityMeta={abilityMeta}
+                  magicianOutOfActions={magicianOutOfActions}
+                  magicianChoice={nightActions.Magician?.metadata?.choice}
+                  magicianUsedKill={roleStates.Magician.usedKill}
+                  magicianUsedSave={roleStates.Magician.usedSave}
+                  onMagicianChoiceChange={(choice) => updateNightChoice("Magician", choice)}
+                  wakeIndex={wakeIndex}
+                  stepOrderLength={stepOrder.length}
+                  onPreviousStep={previousStep}
+                  onNextStep={nextStep}
+                  onCompleteNight={completeNight}
+                  currentStepComplete={currentStepComplete}
+                  allStepsComplete={allStepsComplete}
+                  nightNumber={nightNumber}
+                />
               )}
 
               {lastNightResult && !nightInProgress && !dayInProgress && (
-                <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-                  <p className="text-sm font-semibold">Night {summaryNightNumber} Summary</p>
-                  <div className="grid gap-2 text-sm sm:grid-cols-2">
-                    <div>
-                      <span className="text-muted-foreground">Deaths:</span>{" "}
-                      <span className="font-semibold">
-                        {lastNightResult.deaths.length > 0
-                          ? lastNightResult.deaths.map((id) => getPlayerName(id)).join(", ")
-                          : "None"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Saves:</span>{" "}
-                      <span className="font-semibold">
-                        {lastNightResult.saves.length > 0
-                          ? lastNightResult.saves.map((id) => getPlayerName(id)).join(", ")
-                          : "None"}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="space-y-2 rounded-md border border-border/60 bg-background/50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Death Details</p>
-                    {summaryDeathDetails.length > 0 ? (
-                      <div className="space-y-2">
-                        {summaryDeathDetails.map((detail) => (
-                          <div key={`death-${detail.playerId}`} className="text-sm">
-                            <p className="font-semibold">{getPlayerName(detail.playerId)}</p>
-                            <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
-                              {(detail.causes ?? []).length > 0 ? (
-                                detail.causes.map((cause, index) => <li key={`cause-${detail.playerId}-${index}`}>{cause}</li>)
-                              ) : (
-                                <li>Cause not recorded.</li>
-                              )}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">No deaths occurred.</p>
-                    )}
-                  </div>
-                  <div className="space-y-2 rounded-md border border-border/60 bg-background/50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action Details</p>
-                    <div className="grid gap-2 text-xs sm:grid-cols-2">
-                      <div>
-                        <p className="font-semibold text-muted-foreground">Lover Pairs Created</p>
-                        <p>
-                          {(lastNightResult.loverPairsCreated ?? []).length > 0
-                            ? (lastNightResult.loverPairsCreated ?? [])
-                                .map((pair) => {
-                                  const [a, b] = pair.split("|");
-                                  return `${getPlayerName(a)} + ${getPlayerName(b)}`;
-                                })
-                                .join("; ")
-                            : "None"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-muted-foreground">Bus Driver Swap</p>
-                        <p>{busSwapDetailText}</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-muted-foreground">Blocked Roles</p>
-                        <p>{lastNightResult.blocked.length > 0 ? lastNightResult.blocked.map(roleLabel).join(", ") : "None"}</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-muted-foreground">Detective Findings</p>
-                        <p>
-                          {lastNightResult.investigations.length > 0
-                            ? lastNightResult.investigations
-                                .map((item) => `${getPlayerName(item.targetId)} = ${item.result}`)
-                                .join("; ")
-                            : "None"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-muted-foreground">Conversions</p>
-                        <p>
-                          {(lastNightResult.recruits ?? []).length > 0
-                            ? (lastNightResult.recruits ?? []).map((id) => getPlayerName(id)).join(", ")
-                            : "None"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-muted-foreground">Daytime Defense</p>
-                        <p>
-                          {(lastNightResult.dayImmunities ?? []).length > 0
-                            ? (lastNightResult.dayImmunities ?? []).map((id) => getPlayerName(id)).join(", ")
-                            : "None"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  {(lastNightResult.notes ?? []).length > 0 && (
-                    <div className="space-y-2 rounded-md border border-border/60 bg-background/50 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">System Notes</p>
-                      <div className="flex flex-wrap gap-1">
-                        {(lastNightResult.notes ?? []).map((note, index) => (
-                          <Badge key={`note-${index}`} variant="outline" className="text-[10px]">
-                            {note}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="space-y-2 rounded-md border border-border/60 bg-background/50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Player Readout</p>
-                    <div className="flex flex-wrap gap-2">
-                      {players.map((player) => {
-                        const role = effectiveRoleByPlayer[player.id] ?? "Civilian";
-                        const RoleIcon = ROLE_ICONS[role];
-                        const isDead = deadSet.has(player.id);
-                        const wasSaved = (lastNightResult.saves ?? []).includes(player.id);
-                        const wasConverted = (lastNightResult.recruits ?? []).includes(player.id);
-                        const hasDayImmunity = (lastNightResult.dayImmunities ?? []).includes(player.id);
-                        const loverPair = loverPairs.find(([a, b]) => a === player.id || b === player.id);
-                        const loverPartnerId = loverPair ? (loverPair[0] === player.id ? loverPair[1] : loverPair[0]) : null;
-
-                        return (
-                          <div
-                            key={`summary-player-${player.id}`}
-                            className={cn(
-                              "relative h-64 w-44 rounded-2xl border border-border/70 bg-gradient-to-b from-background/95 to-background/60 p-4 shadow-sm",
-                              isDead ? "border-border/40 bg-muted/30 text-muted-foreground grayscale-[0.35] opacity-70" : ""
-                            )}
-                          >
-                            <div className="mt-2 flex h-full flex-col items-center justify-between text-center">
-                              <div className="space-y-1">
-                                <p className="line-clamp-2 text-base font-semibold leading-tight">{player.name.trim() || "Unnamed"}</p>
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    "text-sm",
-                                    isDead ? "border-red-400/60 text-red-200" : "border-emerald-400/60 text-emerald-200"
-                                  )}
-                                >
-                                  {isDead ? "Dead" : "Alive"}
-                                </Badge>
-                              </div>
-                              <div className="space-y-1">
-                                <div className="mx-auto grid size-12 place-items-center rounded-full border border-border/60 bg-background/70">
-                                  {isDead ? (
-                                    <SkullIcon className="h-6 w-6 text-red-300" />
-                                  ) : (
-                                    <RoleIcon className="h-6 w-6 text-muted-foreground" />
-                                  )}
-                                </div>
-                                <p className="text-lg font-semibold leading-tight">{roleLabel(role)}</p>
-                              </div>
-                              <div className="flex min-h-10 flex-wrap items-center justify-center gap-1">
-                                {loverPartnerId && (
-                                  <Badge variant="outline" className="border-pink-400/60 text-xs text-pink-200">
-                                    Lover
-                                  </Badge>
-                                )}
-                                {wasConverted && (
-                                  <Badge variant="outline" className="border-amber-400/60 text-xs text-amber-200">
-                                    Converted
-                                  </Badge>
-                                )}
-                                {hasDayImmunity && (
-                                  <Badge variant="outline" className="border-cyan-400/60 text-xs text-cyan-200">
-                                    Daytime Defense
-                                  </Badge>
-                                )}
-                                {wasSaved && (
-                                  <Badge variant="outline" className="border-emerald-400/60 text-xs text-emerald-200">
-                                    Saved
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {!dayInProgress && (
-                    <div className="flex items-center justify-between gap-2">
-                      <Button variant="outline" onClick={backToPreviousNight}>
-                        Back to Previous Night
-                      </Button>
-                      <div>
-                        <Button onClick={beginDay} disabled={Boolean(winCondition)}>
-                          Proceed to Day {displayDayNumber}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <NightSummaryPanel
+                  lastNightResult={lastNightResult}
+                  getPlayerName={getPlayerName}
+                  summaryDeathDetails={summaryDeathDetails}
+                  busSwapDetailText={busSwapDetailText}
+                  players={players}
+                  effectiveRoleByPlayer={effectiveRoleByPlayer}
+                  deadSet={deadSet}
+                  loverPairs={loverPairs}
+                  winCondition={winCondition}
+                  displayDayNumber={displayDayNumber}
+                  onBackToPreviousNight={backToPreviousNight}
+                  onBeginDay={beginDay}
+                />
               )}
 
               {dayInProgress && !nightInProgress && (
-                <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-                  <div>
-                    <p className="text-base font-semibold">Day {displayDayNumber} - Town Vote</p>
-                    <p className="text-xs text-muted-foreground">
-                      Select a player to eliminate in the town square.
-                    </p>
-                  </div>
-
-                  <>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {alivePlayers.map((player) => {
-                          const role = effectiveRoleByPlayer[player.id] ?? "Civilian";
-                          const immune = dayImmunitySet.has(player.id);
-                          return (
-                            <button
-                              key={`day-vote-${player.id}`}
-                              type="button"
-                              onClick={() => {
-                                setDayNomineeId(player.id);
-                                setPostmanDeliveryTargetId("");
-                                setAwaitingPostmanDelivery(false);
-                                setDayError(null);
-                                setDayInfo(null);
-                              }}
-                              className={cn(
-                                "rounded-lg border p-3 text-left transition",
-                                dayNomineeId === player.id
-                                  ? "border-primary bg-primary/10"
-                                  : "border-border/70 bg-background/50 hover:bg-background/80",
-                                immune ? "border-cyan-500/50" : ""
-                              )}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="font-semibold">{player.name.trim() || "Unnamed"}</p>
-                                <div className="flex gap-1">
-                                  {immune && <Badge variant="outline">Daytime Defense</Badge>}
-                                  <Badge variant="secondary">{roleLabel(role)}</Badge>
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {dayPostmanHung && (
-                        <div className="space-y-2 rounded-lg border border-border/70 bg-background/50 p-3">
-                          <p className="text-sm font-semibold">Postman Final Delivery</p>
-                          <p className="text-xs text-muted-foreground">
-                            Postman is being hung. Choose one additional target.
-                          </p>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {dayPostmanTargets.map((id) => (
-                              <button
-                                key={`postman-chain-${id}`}
-                                type="button"
-                                onClick={() => setPostmanDeliveryTargetId(id)}
-                                className={cn(
-                                  "rounded-lg border p-3 text-left",
-                                  postmanDeliveryTargetId === id
-                                    ? "border-primary bg-primary/10"
-                                    : "border-border/70 bg-background/50"
-                                )}
-                              >
-                                <p className="font-semibold">{getPlayerName(id)}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {roleLabel(effectiveRoleByPlayer[id] ?? "Civilian")}
-                                </p>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {dayError && (
-                        <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-100">
-                          {dayError}
-                        </div>
-                      )}
-                      {dayInfo && (
-                        <div className="rounded-md border border-cyan-500/50 bg-cyan-500/10 p-3 text-sm text-cyan-100">
-                          {dayInfo}
-                        </div>
-                      )}
-
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={skipDayHang}
-                          disabled={dayEliminationDone || Boolean(winCondition)}
-                        >
-                          Skip Hang
-                        </Button>
-                        <Button onClick={confirmDayElimination} disabled={dayEliminationDone || Boolean(winCondition)}>
-                          {dayEliminationDone ? "Elimination Resolved" : "Confirm Elimination"}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          onClick={startNextNightFromDay}
-                          disabled={!dayEliminationDone || Boolean(winCondition)}
-                        >
-                          Start Night {nightNumber}
-                        </Button>
-                      </div>
-                    </>
-                </div>
+                <DayPhasePanel
+                  displayDayNumber={displayDayNumber}
+                  alivePlayers={alivePlayers}
+                  effectiveRoleByPlayer={effectiveRoleByPlayer}
+                  dayImmunitySet={dayImmunitySet}
+                  dayNomineeId={dayNomineeId}
+                  onSelectNominee={(playerId) => {
+                    setDayNomineeId(playerId);
+                    setPostmanDeliveryTargetId("");
+                    setAwaitingPostmanDelivery(false);
+                    setDayError(null);
+                    setDayInfo(null);
+                  }}
+                  dayPostmanHung={dayPostmanHung}
+                  dayPostmanTargets={dayPostmanTargets}
+                  postmanDeliveryTargetId={postmanDeliveryTargetId}
+                  onSelectPostmanDeliveryTarget={setPostmanDeliveryTargetId}
+                  getPlayerName={getPlayerName}
+                  dayError={dayError}
+                  dayInfo={dayInfo}
+                  onSkipHang={skipDayHang}
+                  onConfirmElimination={confirmDayElimination}
+                  onStartNight={startNextNightFromDay}
+                  dayEliminationDone={dayEliminationDone}
+                  winCondition={winCondition}
+                  nightNumber={nightNumber}
+                />
               )}
             </CardContent>
           </Card>
+
+          {nightInProgress && currentRole && (
+            <CurrentNightStepStatusCard
+              currentRole={currentRole}
+              currentStepValidation={currentStepValidation}
+              isRoleSuppressedByRecruit={isRoleSuppressedByRecruit}
+              vigilanteLockedOut={roleStates.Vigilante.lockedOut}
+              currentStepComplete={currentStepComplete}
+            />
+          )}
         </section>
-      </div>
+      <PlayerPickerDialog
+        picker={picker}
+        onOpenChange={(open) => setPicker((current) => ({ ...current, open }))}
+        selectablePlayers={getSelectablePlayers(picker.role, picker.index, picker.mode)}
+        effectiveRoleByPlayer={effectiveRoleByPlayer}
+        deadSet={deadSet}
+        onSelect={applyPickerSelection}
+        noActionValue={NO_ACTION}
+      />
 
-      <Dialog open={picker.open} onOpenChange={(open) => setPicker((current) => ({ ...current, open }))}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{picker.title}</DialogTitle>
-            <DialogDescription>{picker.description}</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid max-h-[52vh] gap-2 overflow-y-auto sm:grid-cols-2">
-            {getSelectablePlayers(picker.role, picker.index, picker.mode).map((player) => {
-              const role = effectiveRoleByPlayer[player.id] ?? "Civilian";
-              const isDead = deadSet.has(player.id);
-              const excluded = (picker.excludePlayerIds ?? []).includes(player.id);
-              return (
-                <button
-                  key={player.id}
-                  type="button"
-                  onClick={() => applyPickerSelection(player.id)}
-                  disabled={excluded}
-                  className={cn(
-                    "rounded-lg border border-border/70 bg-background/50 p-3 text-left transition",
-                    excluded ? "cursor-not-allowed opacity-50" : "hover:bg-background/80"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold">{player.name.trim() || "Unnamed"}</p>
-                    <div className="flex gap-1">
-                      {isDead && <Badge variant="outline">Dead</Badge>}
-                      <Badge variant="secondary">{roleLabel(role)}</Badge>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <DialogFooter showCloseButton>
-            {picker.allowNoAction && picker.mode === "target" && (
-              <Button variant="outline" onClick={() => applyPickerSelection(NO_ACTION)}>
-                Set No Action
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
+      <SessionSettingsDialog
         open={settingsOpen}
-        onOpenChange={(open) => {
-          setSettingsOpen(open);
-          if (!open) setConfirmEndSession(false);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Session Settings</DialogTitle>
-            <DialogDescription>Manage moderator session controls.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/50 p-3">
-              <Label htmlFor="session-theme" className="text-sm font-medium">
-                Dark Mode
-              </Label>
-              <Switch id="session-theme" checked={darkMode} onCheckedChange={setDarkMode} />
-            </div>
-
-            {confirmEndSession ? (
-              <div className="space-y-2 rounded-lg border border-red-500/50 bg-red-500/10 p-3">
-                <p className="text-sm font-semibold text-red-100">Confirm End Session</p>
-                <p className="text-xs text-red-100/90">
-                  This will end the current game session and return to setup.
-                </p>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setConfirmEndSession(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={() => {
-                      setSettingsOpen(false);
-                      setConfirmEndSession(false);
-                      endSession();
-                    }}
-                  >
-                    Confirm End Session
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex justify-end">
-                <Button variant="destructive" onClick={() => setConfirmEndSession(true)}>
-                  End Session
-                </Button>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </main>
+        onOpenChange={setSettingsOpen}
+        confirmEndSession={confirmEndSession}
+        onConfirmStateChange={setConfirmEndSession}
+        darkMode={darkMode}
+        onDarkModeChange={setDarkMode}
+        onEndSession={endSession}
+      />
+    </SessionPageShell>
   );
 }
-
-
