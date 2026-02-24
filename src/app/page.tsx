@@ -371,6 +371,14 @@ export default function Home() {
     });
   }
 
+  function clearAllRoles() {
+    setRoleCounts((current) => {
+      const next = { ...current };
+      for (const role of ROLE_TYPES) next[role] = 0;
+      return next;
+    });
+  }
+
   function startSession() {
     const state: SessionState = {
       players,
@@ -546,6 +554,9 @@ export default function Home() {
                       Total selected roles must match player count.
                     </p>
                     <div className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={clearAllRoles} disabled={totalRoles === 0}>
+                        Clear Roles
+                      </Button>
                       <Button size="sm" variant="outline" onClick={() => setExpandedAlignments([...ALIGNMENTS])}>
                         Expand All
                       </Button>

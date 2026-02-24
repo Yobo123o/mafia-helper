@@ -33,6 +33,9 @@ import {
 } from "./session-reducer";
 import {
   clearSession,
+  createNightActions,
+  createRoleAssignments,
+  saveSession,
   type NightActionState,
 } from "@/lib/session";
 import { useAutosaveSession, useSavedSession } from "@/hooks/use-session-persistence";
@@ -919,6 +922,17 @@ export default function SessionPage() {
   function endSession() {
     setSessionActive(false);
     clearSession();
+    saveSession({
+      players,
+      roleCounts,
+      nightNumber: 1,
+      nightInProgress: false,
+      wakeIndex: 0,
+      sessionActive: false,
+      roleAssignments: createRoleAssignments(ROLE_TYPES),
+      nightActions: createNightActions(ROLE_TYPES),
+      deadPlayerIds: [],
+    });
     router.push("/");
   }
 
