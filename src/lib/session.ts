@@ -79,7 +79,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function migrateSession(raw: unknown): SessionState | null {
   if (!isRecord(raw)) return null;
-  const migrated = { ...raw } as SessionState;
+  const migrated: Record<string, unknown> = { ...raw };
   const version = typeof raw.schemaVersion === "number" ? raw.schemaVersion : 0;
 
   // v0 -> v1: add explicit schema version to legacy saved sessions.
@@ -106,7 +106,7 @@ export function migrateSession(raw: unknown): SessionState | null {
     return null;
   }
 
-  return migrated;
+  return migrated as SessionState;
 }
 
 export function loadSession(): SessionState | null {

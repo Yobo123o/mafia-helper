@@ -261,7 +261,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved.players) setPlayers(saved.players);
     if (saved.roleCounts) setRoleCounts(saved.roleCounts);
-    if (typeof saved.sessionActive === "boolean") setSessionActive(saved.sessionActive);
+    setSessionActive(saved.sessionActive);
   }, [savedSession]);
 
   const draftSession = useMemo<SessionState | null>(() => {

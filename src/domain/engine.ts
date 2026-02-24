@@ -219,10 +219,9 @@ function applyTargetModifiersPhase(input: ResolveNightInput, ctx: NightResolutio
 
   for (const role of Object.keys(input.nightActions) as RoleType[]) {
     const action = input.nightActions[role];
-    const targets = (action?.targetIds ?? []).map((id) =>
+    ctx.roleTargets[role] = (action?.targetIds ?? []).map((id) =>
       isActionableTarget(id) ? redirectTarget(id, ctx.swapA, ctx.swapB) : id
     );
-    ctx.roleTargets[role] = targets;
   }
 
   if (ctx.swapA && ctx.swapB) {

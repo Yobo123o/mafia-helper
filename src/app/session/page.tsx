@@ -397,11 +397,10 @@ export default function SessionPage() {
       map[role] = assigned.some((id) => id && !deadSet.has(id));
     }
     if (!isNight1) {
-      const mafiaTeamAlive = ["Mafia", "Godfather", "MadeMan"].some((r) => {
+      map.Mafia = ["Mafia", "Godfather", "MadeMan"].some((r) => {
         const role = r as RoleType;
         return (roleAssignments[role] ?? []).some((id) => id && !deadSet.has(id));
       });
-      map.Mafia = mafiaTeamAlive;
     }
     return map;
   }, [deadSet, isNight1, roleAssignments, roleCounts]);
