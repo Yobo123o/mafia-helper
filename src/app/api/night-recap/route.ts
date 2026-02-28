@@ -25,10 +25,26 @@ function parseStructuredRecap(raw: string): StructuredRecap | null {
     ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim()
     : trimmed;
   try {
-    const parsed = JSON.parse(unwrapped) as StructuredRecap;
-    if (!parsed || typeof parsed.headline !== "string" || !Array.isArray(parsed.events)) return null;
-    if (parsed.events.some((event) => !event || typeof event.title !== "string" || typeof event.text !== "string")) return null;
-    return parsed;
+    const parsed: unknown = JSON.parse(unwrapped);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const candidate = parsed as {
+      headline?: unknown;
+      events?: Array<{ title?: unknown; text?: unknown }>;
+      coda?: unknown;
+    };
+
+    if (typeof candidate.headline !== "string" || !Array.isArray(candidate.events)) return null;
+    if (candidate.events.some((event) => !event || typeof event.title !== "string" || typeof event.text !== "string")) return null;
+
+    return {
+      headline: candidate.headline,
+      events: candidate.events.map((event) => ({
+        title: event.title as string,
+        text: event.text as string,
+      })),
+      coda: typeof candidate.coda === "string" ? candidate.coda : undefined,
+    };
   } catch {
     return null;
   }
