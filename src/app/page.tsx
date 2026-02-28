@@ -236,7 +236,7 @@ function RoleDescription({ text, abilities }: { text: string; abilities: RoleAbi
 export default function Home() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("players");
-  const [expandedAlignments, setExpandedAlignments] = useState<string[]>([]);
+  const [expandedAlignments, setExpandedAlignments] = useState<string[]>([...ALIGNMENTS]);
   const { darkMode, setDarkMode } = useThemePreference();
   const [players, setPlayers] = useState<PlayerEntry[]>([
     { id: crypto.randomUUID(), name: "Player 1" },
@@ -342,7 +342,6 @@ export default function Home() {
       for (const role of ROLE_TYPES) next[role] = 1;
       return next;
     });
-    setExpandedAlignments([...ALIGNMENTS]);
   }
 
   function removePlayer(id: string) {
@@ -425,7 +424,7 @@ export default function Home() {
         <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-red-500/10 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10">
+      <div className="relative mx-auto flex w-full max-w-[1700px] flex-col gap-6 px-4 py-6 md:px-8 md:py-10">
         <header className="rounded-2xl border border-border/60 bg-card/60 p-4 backdrop-blur md:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1.5">
@@ -488,7 +487,7 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)] xl:grid-cols-[minmax(0,5fr)_300px]">
           <Card className="border-border/60 bg-card/70 backdrop-blur">
             <CardHeader>
               <CardTitle>Game Setup</CardTitle>
@@ -578,24 +577,26 @@ export default function Home() {
                     </div>
                   )}
 
-                  <ScrollArea className="h-[65vh] pr-3">
-                    <Accordion
-                      type="multiple"
-                      value={expandedAlignments}
-                      onValueChange={(value) => setExpandedAlignments(value)}
-                      className="space-y-3 pb-1"
-                    >
-                      {ALIGNMENTS.map((alignment) => (
-                        <AccordionItem
-                          key={alignment}
-                          value={alignment}
+                  <Accordion
+                    type="multiple"
+                    value={expandedAlignments}
+                    onValueChange={(value) => setExpandedAlignments(value)}
+                    className="space-y-4 pb-1"
+                  >
+                    {ALIGNMENTS.map((alignment) => (
+                      <AccordionItem
+                        key={alignment}
+                        value={alignment}
+                        className="border-0"
+                      >
+                        <section
                           className={cn(
-                            "rounded-xl border bg-background/50 px-4",
+                            "rounded-xl border bg-background/50 p-4",
                             ALIGNMENT_STYLES[alignment].border
                           )}
                         >
-                          <AccordionTrigger>
-                            <div className="flex w-full items-center justify-between pr-3">
+                          <AccordionTrigger className="py-0 hover:no-underline">
+                            <div className="mb-3 flex w-full items-center justify-between pr-2">
                               <div className="flex items-center gap-2">
                                 <span
                                   className={cn(
@@ -618,8 +619,8 @@ export default function Home() {
                             </div>
                           </AccordionTrigger>
                           <AccordionContent>
-                            <div className="grid gap-3 pb-1 md:grid-cols-2 md:auto-rows-fr">
-                              {ROLE_TYPES.filter((role) => ROLE_DEFINITIONS[role].alignment === alignment).map((role) => {
+                            <div className="grid gap-2.5 pb-1 md:grid-cols-2 xl:grid-cols-3 xl:auto-rows-fr">
+                            {ROLE_TYPES.filter((role) => ROLE_DEFINITIONS[role].alignment === alignment).map((role) => {
                                 const count = roleCounts[role];
                                 const unique = UNIQUE_ROLES.has(role);
                                 const usedByOthers = totalRoles - count;
@@ -631,18 +632,15 @@ export default function Home() {
                                 return (
                                   <div
                                     key={role}
-                                    className="group mx-auto h-full w-full max-w-[320px] overflow-hidden rounded-xl border border-border/70 bg-card/60 shadow-sm transition-colors hover:border-border"
+                                    className={cn(
+                                      "group relative h-full w-full min-w-0 overflow-hidden rounded-2xl border-2 bg-gradient-to-b p-1 shadow-md transition-colors md:min-h-[440px] xl:min-h-[490px]",
+                                      ALIGNMENT_STYLES[alignment].border
+                                    )}
                                   >
-                                    <div
-                                      className={cn(
-                                        "h-1 w-full",
-                                        ALIGNMENT_STYLES[alignment].glow
-                                      )}
-                                    />
-                                    <div className="flex h-full flex-col gap-3 p-3">
-                                      <div className="flex items-start justify-between gap-2">
-                                        <div className="space-y-1">
-                                          <p className="text-base font-semibold leading-none">{roleLabel(role)}</p>
+                                    <div className="flex h-full flex-col rounded-[14px] border border-border/70 bg-card/85 p-2.5">
+                                      <div className="rounded-md border border-border/70 bg-background/70 px-2.5 py-2">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <p className="text-base font-semibold leading-tight">{roleLabel(role)}</p>
                                           <div className="flex items-center gap-1.5">
                                             <Badge
                                               variant="outline"
@@ -657,28 +655,31 @@ export default function Home() {
                                             )}
                                           </div>
                                         </div>
-                                        <div
-                                          className={cn(
-                                            "relative grid size-12 shrink-0 place-items-center rounded-lg border bg-background/40",
-                                            ALIGNMENT_STYLES[alignment].border
-                                          )}
-                                        >
+                                      </div>
+
+                                      <div
+                                        className={cn(
+                                          "mt-2 rounded-md border bg-gradient-to-b from-background/70 to-muted/30 p-2",
+                                          ALIGNMENT_STYLES[alignment].border
+                                        )}
+                                      >
+                                        <div className="grid min-h-[92px] place-items-center rounded border border-border/50 bg-background/40">
                                           <RoleIcon
-                                            className={cn("relative block h-6 w-6 shrink-0", ALIGNMENT_STYLES[alignment].text)}
+                                            className={cn("block h-11 w-11 shrink-0", ALIGNMENT_STYLES[alignment].text)}
                                           />
                                         </div>
                                       </div>
 
-                                      <div className="flex-1 space-y-2.5">
+                                      <div className="mt-2 flex-1 rounded-md border border-border/60 bg-background/55 p-2.5">
                                         <div className="space-y-2">
                                           <RoleDescription text={roleNotes} abilities={ROLE_DEFINITIONS[role].abilities} />
                                         </div>
 
-                                        <Separator />
+                                        <Separator className="my-2" />
 
-                                        <div className="min-h-[150px] space-y-2">
+                                        <div className="min-h-[96px] space-y-2">
                                           <div className="flex items-center justify-between">
-                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Role Abilities</p>
+                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Abilities</p>
                                           </div>
                                           {ROLE_DEFINITIONS[role].abilities.length > 0 ? (
                                             <RoleReferenceList abilities={ROLE_DEFINITIONS[role].abilities} />
@@ -688,7 +689,7 @@ export default function Home() {
                                         </div>
                                       </div>
 
-                                      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/50 pt-2">
+                                      <div className="mt-2 flex shrink-0 items-center justify-end gap-2 rounded-md border border-border/60 bg-background/70 px-2 py-2">
                                         {!unique && (
                                           <Button size="icon" variant="outline" onClick={() => updateRoleCount(role, -1)}>
                                             -
@@ -730,10 +731,10 @@ export default function Home() {
                               })}
                             </div>
                           </AccordionContent>
-                        </AccordionItem>
-                      ))}
-                    </Accordion>
-                  </ScrollArea>
+                        </section>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
                 </TabsContent>
 
                 <TabsContent value="review" className="space-y-4">

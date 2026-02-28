@@ -14,6 +14,7 @@ export type RoleType =
   | "Vigilante"
   | "Mafia"
   | "Godfather"
+  | "RivalGodfather"
   | "Lawyer"
   | "MadeMan"
   | "Bartender"
@@ -48,6 +49,7 @@ export type RoleStateMap = {
   Vigilante: { usedShot: boolean; lockedOut: boolean; pendingLockout?: boolean };
   Mafia: EmptyState;
   Godfather: EmptyState;
+  RivalGodfather: EmptyState;
   Lawyer: { lastDefendedPlayerId?: string };
   MadeMan: { usedRecruit: boolean };
   Bartender: EmptyState;

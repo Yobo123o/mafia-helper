@@ -42,3 +42,6 @@ next-env.d.ts
 
 # generated test transpile output
 .test-dist/
+
+# local environment overrides
+.env.local

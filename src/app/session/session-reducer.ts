@@ -9,6 +9,7 @@ import {
   type NightHistorySnapshot,
   type NightActionState,
   type PlayerEntry,
+  type PublicStoryEvent,
   type SessionState,
   type TimelineEntry,
 } from "@/lib/session";
@@ -16,6 +17,7 @@ import {
 type PreviousNightSnapshot = NightHistorySnapshot;
 const MAX_HISTORY_SNAPSHOTS = 10;
 const MAX_TIMELINE_ENTRIES = 50;
+const MAX_PUBLIC_STORY_ENTRIES = 120;
 
 export type SessionReducerState = {
   sessionActive: boolean;
@@ -36,6 +38,7 @@ export type SessionReducerState = {
   previousNightSnapshot: PreviousNightSnapshot | null;
   historySnapshots: PreviousNightSnapshot[];
   timeline: TimelineEntry[];
+  publicStoryLog: PublicStoryEvent[];
   lastNightResult: NightResult | null;
   winCondition: string | null;
 };
@@ -90,6 +93,7 @@ export function createInitialSessionReducerState(): SessionReducerState {
     previousNightSnapshot: null,
     historySnapshots: [],
     timeline: [],
+    publicStoryLog: [],
     lastNightResult: null,
     winCondition: null,
   };
@@ -135,6 +139,12 @@ function appendBounded<T>(items: T[], item: T, max: number): T[] {
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
+function appendManyBounded<T>(items: T[], newItems: T[], max: number): T[] {
+  if (newItems.length === 0) return items;
+  const next = [...items, ...newItems];
+  return next.length > max ? next.slice(next.length - max) : next;
+}
+
 function makeTimelineEntry(entry: Omit<TimelineEntry, "id">): TimelineEntry {
   return {
     ...entry,
@@ -143,6 +153,73 @@ function makeTimelineEntry(entry: Omit<TimelineEntry, "id">): TimelineEntry {
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   };
+}
+
+function makePublicStoryEntry(entry: Omit<PublicStoryEvent, "id">): PublicStoryEvent {
+  return {
+    ...entry,
+    id:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  };
+}
+
+function buildPlayerRoleMap(assignments: Record<RoleType, string[]>): Record<string, RoleType> {
+  const byPlayer: Record<string, RoleType> = {};
+  for (const role of ROLE_TYPES) {
+    for (const id of assignments[role] ?? []) {
+      if (!id) continue;
+      byPlayer[id] = role;
+    }
+  }
+  return byPlayer;
+}
+
+function buildNightPublicStoryEvents(
+  state: SessionReducerState,
+  output: ResolveNightOutput
+): PublicStoryEvent[] {
+  const roleByPlayer = buildPlayerRoleMap(output.nextRoleAssignments);
+  const events: PublicStoryEvent[] = [];
+  const nightNumber = state.nightNumber;
+  const getPlayerName = (id: string) => state.players.find((player) => player.id === id)?.name.trim() || "Unnamed";
+
+  for (const playerId of output.result.deaths ?? []) {
+    const role = roleByPlayer[playerId] ?? "Civilian";
+    events.push(
+      makePublicStoryEntry({
+        phase: "night",
+        category: "death",
+        nightNumber,
+        text: `Night ${nightNumber}: ${getPlayerName(playerId)} died. They were the ${role.replace(/([a-z])([A-Z])/g, "$1 $2")}.`,
+      })
+    );
+  }
+
+  for (const playerId of output.result.saves ?? []) {
+    events.push(
+      makePublicStoryEntry({
+        phase: "night",
+        category: "save",
+        nightNumber,
+        text: `Night ${nightNumber}: ${getPlayerName(playerId)} survived the night.`,
+      })
+    );
+  }
+
+  if ((output.result.deaths?.length ?? 0) === 0 && (output.result.saves?.length ?? 0) === 0) {
+    events.push(
+      makePublicStoryEntry({
+        phase: "night",
+        category: "no_casualties",
+        nightNumber,
+        text: `Night ${nightNumber}: No public casualties were reported.`,
+      })
+    );
+  }
+
+  return events;
 }
 
 function summarizeNightResult(output: ResolveNightOutput): string {
@@ -174,6 +251,7 @@ function normalizeFromSaved(saved: SessionState): SessionReducerState {
     previousNightSnapshot: clonePreviousNightSnapshot(saved.previousNightSnapshot ?? null),
     historySnapshots: cloneHistorySnapshots(saved.historySnapshots as PreviousNightSnapshot[] | undefined),
     timeline: Array.isArray(saved.timeline) ? (saved.timeline as TimelineEntry[]) : [],
+    publicStoryLog: Array.isArray(saved.publicStoryLog) ? (saved.publicStoryLog as PublicStoryEvent[]) : [],
     lastNightResult: saved.lastNightResult ?? null,
     winCondition: saved.winCondition ?? null,
   };
@@ -242,6 +320,7 @@ export function sessionReducer(
       for (const detail of output.result.recruitDetails ?? []) {
         nextConvertedOrigins[detail.playerId] = detail.fromRole;
       }
+      const nightPublicEvents = buildNightPublicStoryEvents(state, output);
       return {
         ...state,
         previousNightSnapshot: clonePreviousNightSnapshot(snapshot),
@@ -261,6 +340,7 @@ export function sessionReducer(
           }),
           MAX_TIMELINE_ENTRIES
         ),
+        publicStoryLog: appendManyBounded(state.publicStoryLog, nightPublicEvents, MAX_PUBLIC_STORY_ENTRIES),
         deadPlayerIds: output.nextDeadPlayerIds,
         roleAssignments: output.nextRoleAssignments,
         roleStates: output.nextRoleStates,
@@ -306,6 +386,30 @@ export function sessionReducer(
       const nextWinCondition = action.payload.nextDeadPlayerIds
         ? evaluateWinCondition(state.players, nextDeadPlayerIds, state.roleAssignments)
         : state.winCondition;
+      const dayNumber = (action.payload.dayNumber ?? state.dayNumber) || state.nightNumber;
+      const roleByPlayer = buildPlayerRoleMap(state.roleAssignments);
+      const getPlayerName = (id: string) => state.players.find((player) => player.id === id)?.name.trim() || "Unnamed";
+      const newDeaths = nextDeadPlayerIds.filter((id) => !state.deadPlayerIds.includes(id));
+      const dayPublicEvents =
+        newDeaths.length > 0
+          ? newDeaths.map((playerId) =>
+              makePublicStoryEntry({
+                phase: "day",
+                category: "day_elimination",
+                dayNumber,
+                nightNumber: Math.max(1, dayNumber - 1),
+                text: `Day ${dayNumber}: ${getPlayerName(playerId)} was eliminated. They were the ${(roleByPlayer[playerId] ?? "Civilian").replace(/([a-z])([A-Z])/g, "$1 $2")}.`,
+              })
+            )
+          : [
+              makePublicStoryEntry({
+                phase: "day",
+                category: "day_no_elimination",
+                dayNumber,
+                nightNumber: Math.max(1, dayNumber - 1),
+                text: `Day ${dayNumber}: No public elimination occurred.`,
+              }),
+            ];
       return {
         ...state,
         timeline: appendBounded(
@@ -319,6 +423,7 @@ export function sessionReducer(
           }),
           MAX_TIMELINE_ENTRIES
         ),
+        publicStoryLog: appendManyBounded(state.publicStoryLog, dayPublicEvents, MAX_PUBLIC_STORY_ENTRIES),
         deadPlayerIds: nextDeadPlayerIds,
         roleStates: nextRoleStates,
         winCondition: nextWinCondition,
@@ -338,6 +443,17 @@ export function sessionReducer(
             nightNumber: Math.max(1, (((action.payload?.dayNumber ?? state.dayNumber) || state.nightNumber) - 1)),
           }),
           MAX_TIMELINE_ENTRIES
+        ),
+        publicStoryLog: appendBounded(
+          state.publicStoryLog,
+          makePublicStoryEntry({
+            phase: "day",
+            category: "day_no_elimination",
+            dayNumber: (action.payload?.dayNumber ?? state.dayNumber) || state.nightNumber,
+            nightNumber: Math.max(1, (((action.payload?.dayNumber ?? state.dayNumber) || state.nightNumber) - 1)),
+            text: `Day ${(action.payload?.dayNumber ?? state.dayNumber) || state.nightNumber}: Town skipped the elimination vote.`,
+          }),
+          MAX_PUBLIC_STORY_ENTRIES
         ),
         dayEliminationDone: true,
       };
@@ -372,6 +488,7 @@ export function sessionReducer(
           nightInProgress: true,
           wakeIndex: 0,
           lastNightResult: null,
+          publicStoryLog: state.publicStoryLog.filter((entry) => (entry.nightNumber ?? 0) < historySnapshot.nightNumber),
         };
       }
 
@@ -411,6 +528,7 @@ export function sessionReducer(
         roleStates: nextRoleStates,
         loverPairs: nextLoverPairs,
         nightActions: createNightActions(ROLE_TYPES),
+        publicStoryLog: state.publicStoryLog.filter((entry) => (entry.nightNumber ?? 0) < targetNight),
         winCondition: null,
         dayNumber: 0,
         dayInProgress: false,

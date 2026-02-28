@@ -75,6 +75,7 @@ function cloneRoleStates(states: RoleStateMap): RoleStateMap {
     Vigilante: { ...states.Vigilante },
     Mafia: { ...states.Mafia },
     Godfather: { ...states.Godfather },
+    RivalGodfather: { ...states.RivalGodfather },
     Lawyer: { ...states.Lawyer },
     MadeMan: { ...states.MadeMan },
     Bartender: { ...states.Bartender },
@@ -136,6 +137,17 @@ function getMafiaSacrifice(
   const pool = [...madeMan, ...mafia];
   if (pool.length > 0) return pool[0];
   if (godfather.length > 0) return godfather[0];
+  return null;
+}
+
+function getRivalMafiaSacrifice(
+  assignments: Record<RoleType, string[]>,
+  deadSet: Set<string>
+): string | null {
+  const rivalGodfather = (assignments.RivalGodfather ?? []).filter((id) => id && !deadSet.has(id));
+  const rivalMafia = (assignments.RivalMafia ?? []).filter((id) => id && !deadSet.has(id));
+  if (rivalMafia.length > 0) return rivalMafia[0];
+  if (rivalGodfather.length > 0) return rivalGodfather[0];
   return null;
 }
 
@@ -344,6 +356,13 @@ function applyPassiveEffectsPhase(input: ResolveNightInput, ctx: NightResolution
         continue;
       }
 
+      if (role === "RivalMafia") {
+        const rivalDeath = getRivalMafiaSacrifice(ctx.nextAssignments, ctx.deadSet);
+        ctx.addDeathWithCause(rivalDeath, "Visited Grandma and died to Home Defense retaliation.");
+        if (rivalDeath) ctx.notes.push("Grandma retaliated against the Rival Mafia visit.");
+        continue;
+      }
+
       const actor = firstAliveForRole(role, ctx.nextAssignments, ctx.deadSet);
       ctx.addDeathWithCause(actor, `Visited Grandma as ${formatRoleName(role)} and died to Home Defense.`);
       if (actor) ctx.notes.push(`${role} died while visiting Grandma.`);
@@ -394,6 +413,27 @@ function applyInvestigationsPhase(input: ResolveNightInput, ctx: NightResolution
       ctx.nextRoleStates.Cupid.used = true;
       ctx.nextRoleStates.Cupid.loverPairId = `${loverA}|${loverB}`;
       ctx.notes.push("Cupid created a lover pair.");
+
+      // Apply Shared Fate immediately after pair creation so Night 1 deaths
+      // still trigger lover-chain deaths in the same resolution.
+      let loverDeathAdded = true;
+      while (loverDeathAdded) {
+        loverDeathAdded = false;
+        for (const [a, b] of ctx.nextLoverPairs) {
+          const aDead = ctx.deaths.has(a) || ctx.deadSet.has(a);
+          const bDead = ctx.deaths.has(b) || ctx.deadSet.has(b);
+          if (aDead && !bDead) {
+            ctx.addDeathWithCause(b, "Died from Shared Fate (Lover chain).");
+            ctx.notes.push("Lover chain death occurred.");
+            loverDeathAdded = true;
+          }
+          if (bDead && !aDead) {
+            ctx.addDeathWithCause(a, "Died from Shared Fate (Lover chain).");
+            ctx.notes.push("Lover chain death occurred.");
+            loverDeathAdded = true;
+          }
+        }
+      }
     }
   }
 }
@@ -407,6 +447,7 @@ function applyPostInvestigationStateChanges(input: ResolveNightInput, ctx: Night
         currentRole &&
         currentRole !== "Mafia" &&
         currentRole !== "Godfather" &&
+        currentRole !== "RivalGodfather" &&
         currentRole !== "MadeMan" &&
         currentRole !== "UndercoverCop"
       ) {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { ROLE_ICONS, roleLabel } from "@/domain/role-presentation";
+import type { RoleIconComponent } from "@/domain/role-presentation";
 import type { DeathDetail, NightResult, RoleType } from "@/domain/types";
-import type { PlayerEntry } from "@/lib/session";
+import type { PlayerEntry, PublicStoryEvent } from "@/lib/session";
 import { SettingsIcon, SkullIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { RoleAbility } from "@/domain/roles";
@@ -28,6 +29,14 @@ function normalizeCauseForReadAloud(cause: string): string {
   }
   if (!/[.!?]$/.test(text)) text += ".";
   return text;
+}
+
+function getThematicDeathLine(playerName: string, cause: string): string | null {
+  const normalized = cause.trim().toLowerCase();
+  if (normalized === "killed by magician (vanishing act).") {
+    return `${playerName} magically vanished without a trace last night.`;
+  }
+  return null;
 }
 
 export function SessionBackdrop() {
@@ -234,6 +243,8 @@ export function NightSummaryPanel({
   deadSet,
   loverPairs,
   winCondition,
+  summaryNightNumber,
+  publicStoryContext,
   displayDayNumber,
   onBackToPreviousNight,
   onBeginDay,
@@ -247,25 +258,108 @@ export function NightSummaryPanel({
   deadSet: Set<string>;
   loverPairs: [string, string][];
   winCondition: string | null;
+  summaryNightNumber: number;
+  publicStoryContext: PublicStoryEvent[];
   displayDayNumber: number;
   onBackToPreviousNight: () => void;
   onBeginDay: () => void;
 }) {
+  const [aiRecap, setAiRecap] = useState<{
+    headline: string;
+    events: Array<{ title: string; text: string }>;
+  } | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string>("");
+
   const readAloudDeathLines =
     summaryDeathDetails.length > 0
       ? summaryDeathDetails.map((detail) => {
+          const playerName = getPlayerName(detail.playerId);
           const role = effectiveRoleByPlayer[detail.playerId] ?? "Civilian";
           const causes = (detail.causes ?? []).filter(Boolean);
+          const primaryCause = causes[0] ?? "";
+          const thematicLead = primaryCause ? getThematicDeathLine(playerName, primaryCause) : null;
+          const remainingCauses = thematicLead ? causes.slice(1) : causes;
           const causeText =
-            causes.length > 0
-              ? causes.map((cause) => normalizeCauseForReadAloud(cause)).join(" ")
-              : "Cause of death was not recorded.";
-          return `${getPlayerName(detail.playerId)} died last night. ${causeText} They were the ${roleLabel(role)}.`;
+            remainingCauses.length > 0
+              ? remainingCauses.map((cause) => normalizeCauseForReadAloud(cause)).join(" ")
+              : !thematicLead
+                ? "Cause of death was not recorded."
+                : "";
+          const leadText = thematicLead ?? `${playerName} died last night.`;
+          return `${leadText}${causeText ? ` ${causeText}` : ""} They were the ${roleLabel(role)}.`;
         })
       : [];
 
+  async function generateAiRecap() {
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const payload = {
+        summary: {
+          nightNumber: summaryNightNumber,
+          dayNumber: displayDayNumber,
+          deaths: summaryDeathDetails.map((detail) => {
+            const role = effectiveRoleByPlayer[detail.playerId] ?? "Civilian";
+            return {
+              name: getPlayerName(detail.playerId),
+              role: roleLabel(role),
+              causes: (detail.causes ?? []).filter(Boolean),
+            };
+          }),
+          saves: (lastNightResult.saves ?? []).map((id) => getPlayerName(id)),
+          storyContext: publicStoryContext.map((entry) => entry.text),
+        },
+      };
+
+      const response = await fetch("/api/night-recap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setAiError(data?.error ?? "Failed to generate recap.");
+        return;
+      }
+      if (typeof data?.recap === "string") {
+        setAiRecap({
+          headline: "Night Recap",
+          events: [{ title: "Summary", text: data.recap }],
+        });
+      } else if (data?.recap?.headline && Array.isArray(data?.recap?.events)) {
+        setAiRecap(data.recap);
+      } else {
+        setAiError("Recap format was invalid.");
+      }
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "Failed to generate recap.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
+      <div className="space-y-2 rounded-md border border-border/60 bg-background/50 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI Night Recap</p>
+          <Button variant="outline" size="sm" onClick={generateAiRecap} disabled={aiLoading}>
+            {aiLoading ? "Generating..." : aiRecap ? "Regenerate" : "Generate Recap"}
+          </Button>
+        </div>
+        {aiError && <p className="text-sm text-red-300">{aiError}</p>}
+        {aiRecap && (
+          <div className="space-y-2 rounded-md border border-border/60 bg-background/40 p-2.5">
+            <p className="text-sm font-semibold">{aiRecap.headline || `Night ${summaryNightNumber}:`}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {aiRecap.events[0]?.title ?? "Night Event"}
+            </p>
+            <p className="text-sm leading-relaxed">{aiRecap.events[0]?.text ?? "No recap available."}</p>
+          </div>
+        )}
+        {!aiError && !aiRecap && <p className="text-sm text-muted-foreground">Generate a narrated summary for moderator readout.</p>}
+      </div>
       <div className="space-y-2 rounded-md border border-border/60 bg-background/50 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Read Aloud Breakdown</p>
         {readAloudDeathLines.length > 0 ? (
@@ -676,20 +770,29 @@ export function MafiaTeamRosterPanel({
   renderUniqueRoleCard: (role: RoleType) => ReactNode;
   renderMafiaCard: (index: number) => ReactNode;
 }) {
+  function getMafiaCoreRoleSummary(role: RoleType): string {
+    if (role === "Godfather") return "Appears Innocent when investigated.";
+    if (role === "MadeMan") return "Can convert a player once per game.";
+    if (role === "UndercoverCop") return "Wakes with both teams.";
+    return "";
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <div className={compactGridForUnique}>
           {activeUniqueRoles.map((role) => (
-            <div key={`${role}-core`} className="space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
-              <p className="text-sm font-semibold">{roleLabel(role)}</p>
+            <div key={`${role}-core`} className="min-h-[20rem] space-y-1.5 rounded-lg border border-border/60 bg-background/50 p-3">
+              <p className="text-base font-semibold">{roleLabel(role)}</p>
+              <p className="text-sm text-muted-foreground">{getMafiaCoreRoleSummary(role)}</p>
               {renderUniqueRoleCard(role)}
             </div>
           ))}
         </div>
       </div>
-      <div className="space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
-        <p className="text-sm font-semibold">Mafia Members</p>
+      <div className="min-h-[20rem] space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
+        <p className="text-base font-semibold">Mafia Members</p>
+        <p className="text-sm text-muted-foreground">Coordinate nightly kills with the Godfather.</p>
         {mafiaCount > 0 ? (
           <div className={compactGridForMafia}>
             {Array.from({ length: mafiaCount }).map((_, index) => (
@@ -705,20 +808,44 @@ export function MafiaTeamRosterPanel({
 }
 
 export function RivalMafiaRosterPanel({
+  activeUniqueRoles,
   rivalCount,
-  compactGridClass,
+  compactGridForUnique,
+  compactGridForRival,
+  renderUniqueRoleCard,
   renderRivalCard,
 }: {
+  activeUniqueRoles: RoleType[];
   rivalCount: number;
-  compactGridClass: string;
+  compactGridForUnique: string;
+  compactGridForRival: string;
+  renderUniqueRoleCard: (role: RoleType) => ReactNode;
   renderRivalCard: (index: number) => ReactNode;
 }) {
+  function getRivalCoreRoleSummary(role: RoleType): string {
+    if (role === "RivalGodfather") return "Appears Innocent when investigated.";
+    if (role === "UndercoverCop") return "Wakes with both teams.";
+    return "";
+  }
+
   return (
     <div className="space-y-4">
-      <div className="w-full md:w-fit space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
-        <p className="text-sm font-semibold">Rival Mafia Members</p>
+      <div className="space-y-2">
+        <div className={compactGridForUnique}>
+          {activeUniqueRoles.map((role) => (
+            <div key={`${role}-core`} className="min-h-[20rem] space-y-1.5 rounded-lg border border-border/60 bg-background/50 p-3">
+              <p className="text-base font-semibold">{roleLabel(role)}</p>
+              <p className="text-sm text-muted-foreground">{getRivalCoreRoleSummary(role)}</p>
+              {renderUniqueRoleCard(role)}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="min-h-[20rem] space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
+        <p className="text-base font-semibold">Rival Mafia Members</p>
+        <p className="text-sm text-muted-foreground">Coordinate nightly kills with the Rival Godfather.</p>
         {rivalCount > 0 ? (
-          <div className={compactGridClass}>
+          <div className={compactGridForRival}>
             {Array.from({ length: rivalCount }).map((_, index) => (
               <div key={`rival-mafia-${index}`}>{renderRivalCard(index)}</div>
             ))}
@@ -751,7 +878,7 @@ export function TargetCardsPanel({
   activeAbility: RoleAbility | null;
   sectionTitle: string;
   targetIcon: LucideIcon;
-  abilityRoleIcon: (props: { className?: string }) => ReactNode;
+  abilityRoleIcon: RoleIconComponent;
   targetGridClass: string;
   getSlotLabel: (index: number) => string;
   getDisplayNameForSlot: (index: number) => string | null;
@@ -761,7 +888,7 @@ export function TargetCardsPanel({
   detectivePreview: DetectivePreview;
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div>
         <div>
           <div className="flex items-start gap-2">
@@ -770,7 +897,7 @@ export function TargetCardsPanel({
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold">{activeAbility?.name ?? sectionTitle}</p>
+                <p className="text-base font-semibold">{activeAbility?.name ?? sectionTitle}</p>
                 {activeAbility && (
                   <Badge variant="outline" className="shrink-0 text-[10px]">
                     Active
@@ -779,7 +906,7 @@ export function TargetCardsPanel({
               </div>
             </div>
           </div>
-          {activeAbility && <p className="text-xs text-muted-foreground">{activeAbility.description}</p>}
+          {activeAbility && <p className="text-sm text-muted-foreground">{activeAbility.description}</p>}
         </div>
       </div>
       <div className={targetGridClass}>
@@ -822,7 +949,7 @@ export function TargetCardsPanel({
           {detectivePreview.blockedByBartender ? (
             <>
               <p className="text-sm font-semibold">Result: No result (Drunk)</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Detective was served by Bartender and gets no investigation result tonight.
                 {detectivePreview.redirected && detectivePreview.selectedName && detectivePreview.resolvedName
                   ? ` You selected ${detectivePreview.selectedName}, but Bus Driver redirected the investigation to ${detectivePreview.resolvedName}. Ignore the result because Detective is drunk.`
@@ -832,7 +959,7 @@ export function TargetCardsPanel({
           ) : detectivePreview.result ? (
             <>
               <p className="text-sm font-semibold">Result: {detectivePreview.result}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {detectivePreview.redirected
                   ? `You selected ${detectivePreview.selectedName}. Bus Driver swapped ${detectivePreview.swapAName} and ${detectivePreview.swapBName}, so the investigation resolved to ${detectivePreview.resolvedName}. ${detectivePreview.resolvedName} is ${detectivePreview.resolvedRole} and appears ${detectivePreview.result}.`
                   : `${detectivePreview.resolvedName} is ${detectivePreview.resolvedRole}.`}
@@ -841,7 +968,7 @@ export function TargetCardsPanel({
           ) : (
             <>
               <p className="text-sm font-semibold">Result: None</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Detective was converted by Mafia recruitment this night. Wake the role as normal for secrecy, but this action is ignored.
               </p>
             </>
@@ -924,8 +1051,8 @@ export function CurrentNightStepPanel({
           <div className="min-w-0 w-full md:w-fit space-y-4">
             <div>
               <p className="text-base font-semibold">Role Assignment</p>
-              {isNight1 && <p className="text-xs text-muted-foreground">{getAssignmentPrompt(currentRole)}</p>}
-              {!isNight1 && <p className="text-xs text-muted-foreground">Assignments are locked after Night 1.</p>}
+              {isNight1 && <p className="text-sm text-muted-foreground">{getAssignmentPrompt(currentRole)}</p>}
+              {!isNight1 && <p className="text-sm text-muted-foreground">Assignments are locked after Night 1.</p>}
             </div>
             <div className="space-y-5">
               {currentRole === "Mafia" ? renderMafiaTeamRoster(!isNight1) : renderRivalMafiaTeamRoster(!isNight1)}
@@ -935,7 +1062,7 @@ export function CurrentNightStepPanel({
           <div className="min-w-0 space-y-3">
             <div>
               <p className="text-base font-semibold">Abilities</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {currentRole === "Mafia" ? "Mafia team abilities and passives." : "Rival Mafia team abilities and passives."}
               </p>
             </div>
@@ -965,14 +1092,14 @@ export function CurrentNightStepPanel({
                     </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold">{ability.name}</p>
+                        <p className="text-base font-semibold">{ability.name}</p>
                         <Badge variant="outline" className="shrink-0 text-[10px]">
                           {abilityMeta(ability.activation.phase, ability.activation.type)}
                         </Badge>
                       </div>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">{ability.description}</p>
+                  <p className="text-sm text-muted-foreground">{ability.description}</p>
                 </div>
               );
             })}
@@ -994,7 +1121,7 @@ export function CurrentNightStepPanel({
             )}
           </div>
 
-          <div className="min-w-0 space-y-3">
+          <div className="min-w-0 space-y-4">
             <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
               {currentRole === "Magician" && (
                 <div className="space-y-2">

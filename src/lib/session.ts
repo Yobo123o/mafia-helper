@@ -28,6 +28,15 @@ export type TimelineEntry = {
   dayNumber?: number;
 };
 
+export type PublicStoryEvent = {
+  id: string;
+  phase: "night" | "day";
+  category: "death" | "save" | "no_casualties" | "day_elimination" | "day_no_elimination";
+  text: string;
+  nightNumber?: number;
+  dayNumber?: number;
+};
+
 export type SessionState = {
   schemaVersion?: number;
   players: PlayerEntry[];
@@ -47,13 +56,14 @@ export type SessionState = {
   previousNightSnapshot?: NightHistorySnapshot | null;
   historySnapshots?: NightHistorySnapshot[];
   timeline?: TimelineEntry[];
+  publicStoryLog?: PublicStoryEvent[];
   lastNightResult?: NightResult | null;
   convertedOrigins?: Record<string, RoleType>;
   winCondition?: string | null;
 };
 
 export const SESSION_STORAGE_KEY = "mafia-helper-session";
-export const SESSION_SCHEMA_VERSION = 2;
+export const SESSION_SCHEMA_VERSION = 3;
 
 export function createRoleAssignments(roleTypes: RoleType[]): RoleAssignments {
   const initial = {} as RoleAssignments;
@@ -90,6 +100,11 @@ export function migrateSession(raw: unknown): SessionState | null {
   if (version < 2) {
     migrated.historySnapshots = Array.isArray(migrated.historySnapshots) ? migrated.historySnapshots : [];
     migrated.timeline = Array.isArray(migrated.timeline) ? migrated.timeline : [];
+    migrated.schemaVersion = SESSION_SCHEMA_VERSION;
+  }
+  // v2 -> v3: initialize public story log.
+  if (version < 3) {
+    migrated.publicStoryLog = Array.isArray(migrated.publicStoryLog) ? migrated.publicStoryLog : [];
     migrated.schemaVersion = SESSION_SCHEMA_VERSION;
   }
 

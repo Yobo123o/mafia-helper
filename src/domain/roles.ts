@@ -139,11 +139,11 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     type: "UndercoverCop",
     alignment: "Town",
     wakeOrder: null,
-    notes: "A town operative embedded with the Mafia who wakes with them while secretly feeding the Town information.",
+    notes: "A town operative embedded with both criminal factions who wakes with them while secretly feeding the Town information.",
     abilities: [
       {
         name: "Deep Cover",
-        description: "Undercover Cop wakes with the Mafia while remaining aligned with the Town.",
+        description: "Undercover Cop wakes with both Mafia teams while remaining aligned with the Town.",
         activation: { phase: "Any", type: "Passive" },
       },
       {
@@ -249,6 +249,19 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
       },
     ],
   },
+  RivalGodfather: {
+    type: "RivalGodfather",
+    alignment: "RivalMafia",
+    wakeOrder: null,
+    notes: "The rival syndicate boss, calm under pressure and hard to expose through investigation.",
+    abilities: [
+      {
+        name: "Untouchable Reputation",
+        description: "Appears innocent when investigated.",
+        activation: { phase: "Any", type: "Passive" },
+      },
+    ],
+  },
   Lawyer: {
     type: "Lawyer",
     alignment: "Mafia",
@@ -333,7 +346,7 @@ export function getRoleAlignment(role: RoleType): Alignment {
 }
 
 export function getDetectiveResultForRole(role: RoleType): "Innocent" | "Guilty" {
-  if (role === "Godfather") return "Innocent";
+  if (role === "Godfather" || role === "RivalGodfather") return "Innocent";
   if (role === "Miller") return "Guilty";
   if (role === "SerialKiller") return "Guilty";
   const alignment = getRoleAlignment(role);

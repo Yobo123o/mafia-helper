@@ -105,7 +105,7 @@ function getTargetSectionTitle(role: RoleType): string {
 
 function getAssignmentPrompt(role: RoleType): string {
   if (role === "Mafia") return "Choose players for each Mafia team role.";
-  if (role === "RivalMafia") return "Choose players for the Rival Mafia team.";
+  if (role === "RivalMafia") return "Choose players for each Rival Mafia team role.";
   return `Choose a player to become ${roleLabel(role)}.`;
 }
 
@@ -145,7 +145,7 @@ function abilityMeta(phase: "Night" | "Night 1" | "Day" | "Any", type: "Active" 
 }
 
 function isMadeManRecruitBlockedRole(role: RoleType): boolean {
-  return role === "Mafia" || role === "Godfather" || role === "MadeMan" || role === "UndercoverCop";
+  return role === "Mafia" || role === "Godfather" || role === "RivalGodfather" || role === "MadeMan" || role === "UndercoverCop";
 }
 
 function getTargetSlotIcon(role: RoleType): LucideIcon {
@@ -313,6 +313,7 @@ export default function SessionPage() {
     roleStates,
     loverPairs,
     convertedOrigins,
+    publicStoryLog,
     lastNightResult,
     winCondition,
   } = sessionState;
@@ -399,7 +400,11 @@ export default function SessionPage() {
       map[role] = assigned.some((id) => id && !deadSet.has(id));
     }
     if (!isNight1) {
-      map.Mafia = ["Mafia", "Godfather", "MadeMan"].some((r) => {
+      map.Mafia = ["Mafia", "Godfather", "MadeMan", "UndercoverCop"].some((r) => {
+        const role = r as RoleType;
+        return (roleAssignments[role] ?? []).some((id) => id && !deadSet.has(id));
+      });
+      map.RivalMafia = ["RivalMafia", "RivalGodfather", "UndercoverCop"].some((r) => {
         const role = r as RoleType;
         return (roleAssignments[role] ?? []).some((id) => id && !deadSet.has(id));
       });
@@ -413,7 +418,7 @@ export default function SessionPage() {
   );
   const stepOrder = useMemo(() => {
     if (!isNight1) return wakeOrder;
-    const mafiaSharedRoles = new Set<RoleType>(["Godfather", "MadeMan", "UndercoverCop"]);
+    const mafiaSharedRoles = new Set<RoleType>(["Godfather", "RivalGodfather", "MadeMan", "UndercoverCop"]);
     const extraAssignmentRoles = selectedRoles.filter(
       (role) => role !== "Civilian" && !wakeOrder.includes(role) && !mafiaSharedRoles.has(role)
     );
@@ -485,8 +490,15 @@ export default function SessionPage() {
       );
       return (["Godfather", "MadeMan", "UndercoverCop"] as RoleType[]).reduce((total, role) => total + (roleCounts[role] ?? 0), 0) + displayedMafiaCount;
     }
+    if (currentRole === "RivalMafia") {
+      const displayedRivalCount = Math.max(
+        roleCounts.RivalMafia ?? 0,
+        (roleAssignments.RivalMafia ?? []).filter((id) => Boolean(id && id.trim().length > 0)).length
+      );
+      return (["RivalGodfather", "UndercoverCop"] as RoleType[]).reduce((total, role) => total + (roleCounts[role] ?? 0), 0) + displayedRivalCount;
+    }
     return roleCounts[currentRole] ?? 0;
-  }, [currentRole, roleAssignments.Mafia, roleCounts]);
+  }, [currentRole, roleAssignments.Mafia, roleAssignments.RivalMafia, roleCounts]);
   const teamMaxActionTargets = useMemo(() => {
     if (!isTeamStep || !currentRole) return 0;
     if (currentRole === "Mafia") {
@@ -561,6 +573,11 @@ export default function SessionPage() {
     return rolesToAssign.every((role) => isRoleAssignmentComplete(role));
   }
 
+  function isRivalMafiaAssignmentComplete(): boolean {
+    const rolesToAssign: RoleType[] = ["RivalGodfather", "RivalMafia", "UndercoverCop"];
+    return rolesToAssign.every((role) => isRoleAssignmentComplete(role));
+  }
+
   function isActionComplete(role: RoleType): boolean {
     if (effectiveRecruitTargetId && role !== "Mafia" && role !== "RivalMafia" && role !== "MadeMan") {
       const assigned = roleAssignments[role] ?? [];
@@ -606,6 +623,10 @@ export default function SessionPage() {
       if (!effectiveTarget) return true;
       return !isMadeManRecruitBlockedRole(effectiveRoleByPlayer[effectiveTarget] ?? "Civilian");
     }
+    if (role === "RivalMafia") {
+      const assignmentComplete = isNight1 ? isRivalMafiaAssignmentComplete() : true;
+      return assignmentComplete && isActionComplete("RivalMafia");
+    }
 
     const assignmentComplete = isNight1 ? isRoleAssignmentComplete(role) : true;
     return assignmentComplete && isActionComplete(role);
@@ -631,11 +652,15 @@ export default function SessionPage() {
       const assignmentsComplete =
         currentRole === "Mafia"
           ? (["Godfather", "Mafia", "MadeMan", "UndercoverCop"] as const).every((role) => isRoleAssignedInMemo(role))
+          : currentRole === "RivalMafia"
+            ? (["RivalGodfather", "RivalMafia", "UndercoverCop"] as const).every((role) => isRoleAssignedInMemo(role))
           : isRoleAssignedInMemo(currentRole);
       if (!assignmentsComplete) {
         addIssue(
           currentRole === "Mafia"
             ? "Assign all Mafia team roles before continuing."
+            : currentRole === "RivalMafia"
+              ? "Assign all Rival Mafia team roles before continuing."
             : "Assign all players for this role before continuing."
         );
       }
@@ -667,7 +692,7 @@ export default function SessionPage() {
       if (!effectiveTarget) return issues;
       const effectiveRole = effectiveRoleByPlayer[effectiveTarget] ?? "Civilian";
       if (isMadeManRecruitBlockedRole(effectiveRole)) {
-        addIssue("Made Man cannot recruit Mafia, Godfather, Made Man, or Undercover Cop.");
+        addIssue("Made Man cannot recruit Mafia, Godfather, Rival Godfather, Made Man, or Undercover Cop.");
       }
       return issues;
     }
@@ -1081,12 +1106,17 @@ export default function SessionPage() {
   }
 
   function renderRivalMafiaTeamRoster(readOnly = false) {
+    const uniqueRoles: RoleType[] = ["RivalGodfather", "UndercoverCop"];
     const rivalCount = roleCounts.RivalMafia ?? 0;
+    const activeUniqueRoles = uniqueRoles.filter((role) => (roleCounts[role] ?? 0) > 0);
 
     return (
       <RivalMafiaRosterPanel
+        activeUniqueRoles={activeUniqueRoles}
         rivalCount={rivalCount}
-        compactGridClass={getCompactGridColsClass(rivalCount, 3)}
+        compactGridForUnique={getCompactGridColsClass(activeUniqueRoles.length, 3)}
+        compactGridForRival={getCompactGridColsClass(rivalCount, 3)}
+        renderUniqueRoleCard={(role) => renderAssignmentCard(role, 0, { unassignedLabel: "Assign Player", readOnly })}
         renderRivalCard={(index) =>
           renderAssignmentCard("RivalMafia", index, { unassignedLabel: `Rival Mafia ${index + 1}`, readOnly })
         }
@@ -1186,6 +1216,13 @@ export default function SessionPage() {
     );
   }
 
+  const displayDayNumber = dayNumber > 0 ? dayNumber : nightNumber;
+  const summaryNightNumber = Math.max(1, displayDayNumber - 1);
+  const publicStoryContext = useMemo(
+    () => (publicStoryLog ?? []).filter((entry) => (entry.nightNumber ?? 0) < summaryNightNumber).slice(-20),
+    [publicStoryLog, summaryNightNumber]
+  );
+
   if (!sessionActive) {
     return <NoActiveSessionView onBack={() => router.push("/")} />;
   }
@@ -1195,7 +1232,7 @@ export default function SessionPage() {
   const teamOtherAbilities = (() => {
     if (!currentRole) return [] as Array<{ sourceRole: RoleType; ability: RoleAbility }>;
     const base = currentOtherAbilities.map((ability) => ({ sourceRole: currentRole, ability }));
-    if (currentRole === "Mafia" && (roleCounts.UndercoverCop ?? 0) > 0) {
+    if ((currentRole === "Mafia" || currentRole === "RivalMafia") && (roleCounts.UndercoverCop ?? 0) > 0) {
       const undercoverPassives = ROLE_DEFINITIONS.UndercoverCop.abilities.filter(
         (ability) => ability.activation.type === "Passive"
       );
@@ -1206,8 +1243,6 @@ export default function SessionPage() {
   const mafiaRecruitAvailable =
     currentRole === "Mafia" && (roleCounts.MadeMan ?? 0) > 0 && !roleStates.MadeMan.usedRecruit;
   const mafiaRecruitUsed = currentRole === "Mafia" && (roleCounts.MadeMan ?? 0) > 0 && roleStates.MadeMan.usedRecruit;
-  const displayDayNumber = dayNumber > 0 ? dayNumber : nightNumber;
-  const summaryNightNumber = Math.max(1, displayDayNumber - 1);
   const showingNightSummary = !nightInProgress && !dayInProgress && Boolean(lastNightResult);
   const projectedDayDeaths = getProjectedDayDeaths(dayNomineeId);
   const dayPostmanHung =
@@ -1351,6 +1386,8 @@ export default function SessionPage() {
                   deadSet={deadSet}
                   loverPairs={loverPairs}
                   winCondition={winCondition}
+                  summaryNightNumber={summaryNightNumber}
+                  publicStoryContext={publicStoryContext}
                   displayDayNumber={displayDayNumber}
                   onBackToPreviousNight={backToPreviousNight}
                   onBeginDay={beginDay}

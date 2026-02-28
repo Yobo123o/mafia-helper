@@ -31,6 +31,7 @@ export function getInitialRoleStates(): RoleStateMap {
     Vigilante: { usedShot: false, lockedOut: false, pendingLockout: false },
     Mafia: {},
     Godfather: {},
+    RivalGodfather: {},
     Lawyer: {},
     MadeMan: { usedRecruit: false },
     Bartender: {},
