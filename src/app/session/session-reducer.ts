@@ -10,6 +10,7 @@ import {
   type NightActionState,
   type PlayerEntry,
   type PublicStoryEvent,
+  type RecapTone,
   type SessionState,
   type TimelineEntry,
 } from "@/lib/session";
@@ -41,6 +42,7 @@ export type SessionReducerState = {
   publicStoryLog: PublicStoryEvent[];
   lastNightResult: NightResult | null;
   winCondition: string | null;
+  recapTone: RecapTone;
 };
 
 type FieldUpdater<K extends keyof SessionReducerState> =
@@ -96,6 +98,7 @@ export function createInitialSessionReducerState(): SessionReducerState {
     publicStoryLog: [],
     lastNightResult: null,
     winCondition: null,
+    recapTone: "rated_m_suggestive_lovers",
   };
 }
 
@@ -254,6 +257,7 @@ function normalizeFromSaved(saved: SessionState): SessionReducerState {
     publicStoryLog: Array.isArray(saved.publicStoryLog) ? (saved.publicStoryLog as PublicStoryEvent[]) : [],
     lastNightResult: saved.lastNightResult ?? null,
     winCondition: saved.winCondition ?? null,
+    recapTone: saved.recapTone ?? "rated_m_suggestive_lovers",
   };
 }
 

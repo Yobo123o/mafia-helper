@@ -316,6 +316,7 @@ export default function SessionPage() {
     publicStoryLog,
     lastNightResult,
     winCondition,
+    recapTone,
   } = sessionState;
   const [dayNomineeId, setDayNomineeId] = useState<string>("");
   const [postmanDeliveryTargetId, setPostmanDeliveryTargetId] = useState<string>("");
@@ -1389,6 +1390,7 @@ export default function SessionPage() {
                   summaryNightNumber={summaryNightNumber}
                   publicStoryContext={publicStoryContext}
                   displayDayNumber={displayDayNumber}
+                  recapTone={recapTone}
                   onBackToPreviousNight={backToPreviousNight}
                   onBeginDay={beginDay}
                 />
@@ -1453,6 +1455,8 @@ export default function SessionPage() {
         onConfirmStateChange={setConfirmEndSession}
         darkMode={darkMode}
         onDarkModeChange={setDarkMode}
+        recapTone={recapTone}
+        onRecapToneChange={(value) => dispatch(setSessionField("recapTone", value))}
         onEndSession={endSession}
       />
     </SessionPageShell>

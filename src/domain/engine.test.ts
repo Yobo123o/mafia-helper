@@ -143,6 +143,23 @@ describe("resolveNight targeted interactions", () => {
     expect(output.result.notes).toContain("Grandma retaliated against the Mafia visit.");
   });
 
+  it("does not apply Doctor protection when Doctor visits an alive Grandma", () => {
+    const roleAssignments = makeAssignments();
+    roleAssignments.Grandma = ["p1"];
+    roleAssignments.Doctor = ["p2"];
+    roleAssignments.Mafia = ["p3"];
+
+    const nightActions = makeNightActions();
+    nightActions.Doctor = { targetIds: ["p1"] };
+    nightActions.Mafia = { targetIds: ["p1"] };
+
+    const output = resolveNight(makeInput({ roleAssignments, nightActions, nightNumber: 2 }));
+
+    expect(output.result.saves).not.toContain("p1");
+    expect(output.result.deaths).toEqual(expect.arrayContaining(["p1", "p2", "p3"]));
+    expect(output.nextRoleStates.Doctor.lastSavedPlayerId).toBeUndefined();
+  });
+
   it("propagates lover chain deaths from a kill", () => {
     const roleAssignments = makeAssignments();
     roleAssignments.Mafia = ["p1"];
@@ -174,9 +191,26 @@ describe("resolveNight targeted interactions", () => {
     const output = resolveNight(makeInput({ roleAssignments, nightActions, nightNumber: 2 }));
 
     expect(output.result.deaths).toContain("p2");
-    expect(output.nextRoleStates.Vigilante.usedShot).toBe(true);
     expect(output.nextRoleStates.Vigilante.pendingLockout).toBe(true);
     expect(output.result.notes).toContain("Vigilante killed a Town player and will be locked out next night.");
+  });
+
+  it("allows Vigilante shots after Night 2 even with legacy usedShot state", () => {
+    const roleAssignments = makeAssignments();
+    roleAssignments.Vigilante = ["p1"];
+    roleAssignments.Mafia = ["p4"];
+
+    const nightActions = makeNightActions();
+    nightActions.Vigilante = { targetIds: ["p4"] };
+
+    const roleStates = getInitialRoleStates();
+    roleStates.Vigilante.usedShot = true;
+    roleStates.Vigilante.lockedOut = false;
+
+    const output = resolveNight(makeInput({ roleAssignments, nightActions, nightNumber: 3, roleStates }));
+
+    expect(output.result.deaths).toContain("p4");
+    expect(output.nextRoleStates.Vigilante.pendingLockout).toBe(false);
   });
 });
 

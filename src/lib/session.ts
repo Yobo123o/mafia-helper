@@ -1,6 +1,7 @@
 import type { NightResult, RoleStateMap, RoleType } from "@/domain/types";
 
 export type PlayerEntry = { id: string; name: string };
+export type RecapTone = "standard" | "rated_m" | "rated_m_suggestive_lovers";
 
 export type NightActionState = Record<
   RoleType,
@@ -60,10 +61,11 @@ export type SessionState = {
   lastNightResult?: NightResult | null;
   convertedOrigins?: Record<string, RoleType>;
   winCondition?: string | null;
+  recapTone?: RecapTone;
 };
 
 export const SESSION_STORAGE_KEY = "mafia-helper-session";
-export const SESSION_SCHEMA_VERSION = 3;
+export const SESSION_SCHEMA_VERSION = 4;
 
 export function createRoleAssignments(roleTypes: RoleType[]): RoleAssignments {
   const initial = {} as RoleAssignments;
@@ -105,6 +107,11 @@ export function migrateSession(raw: unknown): SessionState | null {
   // v2 -> v3: initialize public story log.
   if (version < 3) {
     migrated.publicStoryLog = Array.isArray(migrated.publicStoryLog) ? migrated.publicStoryLog : [];
+    migrated.schemaVersion = SESSION_SCHEMA_VERSION;
+  }
+  // v3 -> v4: initialize recap tone preference.
+  if (version < 4) {
+    migrated.recapTone = typeof migrated.recapTone === "string" ? migrated.recapTone : "rated_m_suggestive_lovers";
     migrated.schemaVersion = SESSION_SCHEMA_VERSION;
   }
 

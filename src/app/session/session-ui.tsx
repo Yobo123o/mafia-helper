@@ -11,22 +11,24 @@ import { cn } from "@/lib/utils";
 import { ROLE_ICONS, roleLabel } from "@/domain/role-presentation";
 import type { RoleIconComponent } from "@/domain/role-presentation";
 import type { DeathDetail, NightResult, RoleType } from "@/domain/types";
-import type { PlayerEntry, PublicStoryEvent } from "@/lib/session";
+import type { PlayerEntry, PublicStoryEvent, RecapTone } from "@/lib/session";
 import { SettingsIcon, SkullIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { RoleAbility } from "@/domain/roles";
+import { getRoleAlignment, type RoleAbility } from "@/domain/roles";
 export { EventTimelinePanel } from "./ui/timeline-panel";
 
 function normalizeCauseForReadAloud(cause: string): string {
   let text = cause.trim();
   if (!text) return "Cause of death was not recorded.";
+  text = text.replace(/\(([^)]*)\)/g, "").replace(/\s{2,}/g, " ").trim();
   if (/^Killed by /i.test(text)) {
     text = text.replace(/^Killed by /i, "They were killed by ");
   } else if (/^Visited Grandma .* died to Home Defense\.?$/i.test(text)) {
-    text = "They died while visiting Grandma and were killed by Home Defense.";
+    text = "They died while visiting Grandma's home.";
   } else if (!/^They /i.test(text)) {
     text = `They ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
   }
+  text = text.replace(/\b(Vanishing Act|Escape Trick|Home Defense|Last Laugh|Strong Drink|Route Swap)\b/gi, "").replace(/\s{2,}/g, " ").trim();
   if (!/[.!?]$/.test(text)) text += ".";
   return text;
 }
@@ -34,9 +36,17 @@ function normalizeCauseForReadAloud(cause: string): string {
 function getThematicDeathLine(playerName: string, cause: string): string | null {
   const normalized = cause.trim().toLowerCase();
   if (normalized === "killed by magician (vanishing act).") {
-    return `${playerName} magically vanished without a trace last night.`;
+    return `${playerName} vanished in the night.`;
   }
   return null;
+}
+
+function getAlignmentBadgeClass(role: RoleType): string {
+  const alignment = getRoleAlignment(role);
+  if (alignment === "Town") return "border-emerald-400/60 text-emerald-200";
+  if (alignment === "Mafia") return "border-red-400/60 text-red-200";
+  if (alignment === "RivalMafia") return "border-amber-400/60 text-amber-200";
+  return "border-fuchsia-400/60 text-fuchsia-200";
 }
 
 export function SessionBackdrop() {
@@ -169,6 +179,8 @@ export function SessionSettingsDialog({
   onConfirmStateChange,
   darkMode,
   onDarkModeChange,
+  recapTone,
+  onRecapToneChange,
   onEndSession,
 }: {
   open: boolean;
@@ -177,6 +189,8 @@ export function SessionSettingsDialog({
   onConfirmStateChange: (value: boolean) => void;
   darkMode: boolean;
   onDarkModeChange: (value: boolean) => void;
+  recapTone: RecapTone;
+  onRecapToneChange: (value: RecapTone) => void;
   onEndSession: () => void;
 }) {
   return (
@@ -198,6 +212,24 @@ export function SessionSettingsDialog({
               Dark Mode
             </Label>
             <Switch id="session-theme" checked={darkMode} onCheckedChange={onDarkModeChange} />
+          </div>
+          <div className="space-y-2 rounded-lg border border-border/60 bg-background/50 p-3">
+            <Label htmlFor="recap-tone" className="text-sm font-medium">
+              Recap Tone
+            </Label>
+            <select
+              id="recap-tone"
+              value={recapTone}
+              onChange={(event) => onRecapToneChange(event.target.value as RecapTone)}
+              className="h-10 w-full rounded-lg border border-border/70 bg-background px-3 text-sm outline-none shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <option value="standard">Standard</option>
+              <option value="rated_m">Rated M</option>
+              <option value="rated_m_suggestive_lovers">Rated M + Suggestive Lovers</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Controls how dark and cinematic AI recap narration should be.
+            </p>
           </div>
 
           {confirmEndSession ? (
@@ -246,6 +278,7 @@ export function NightSummaryPanel({
   summaryNightNumber,
   publicStoryContext,
   displayDayNumber,
+  recapTone,
   onBackToPreviousNight,
   onBeginDay,
 }: {
@@ -261,6 +294,7 @@ export function NightSummaryPanel({
   summaryNightNumber: number;
   publicStoryContext: PublicStoryEvent[];
   displayDayNumber: number;
+  recapTone: RecapTone;
   onBackToPreviousNight: () => void;
   onBeginDay: () => void;
 }) {
@@ -268,6 +302,7 @@ export function NightSummaryPanel({
     headline: string;
     events: Array<{ title: string; text: string }>;
   } | null>(null);
+  const [aiMeta, setAiMeta] = useState<{ source: "model" | "fallback"; reasons: string[] } | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string>("");
 
@@ -296,6 +331,7 @@ export function NightSummaryPanel({
     setAiError("");
     try {
       const payload = {
+        tone: recapTone,
         summary: {
           nightNumber: summaryNightNumber,
           dayNumber: displayDayNumber,
@@ -308,6 +344,13 @@ export function NightSummaryPanel({
             };
           }),
           saves: (lastNightResult.saves ?? []).map((id) => getPlayerName(id)),
+          saveRoleByName: Object.fromEntries(
+            (lastNightResult.saves ?? []).map((id) => {
+              const name = getPlayerName(id);
+              const role = effectiveRoleByPlayer[id] ?? "Civilian";
+              return [name, roleLabel(role)];
+            })
+          ),
           storyContext: publicStoryContext.map((entry) => entry.text),
         },
       };
@@ -322,6 +365,7 @@ export function NightSummaryPanel({
         setAiError(data?.error ?? "Failed to generate recap.");
         return;
       }
+      setAiMeta(data?.meta ?? null);
       if (typeof data?.recap === "string") {
         setAiRecap({
           headline: "Night Recap",
@@ -352,10 +396,21 @@ export function NightSummaryPanel({
         {aiRecap && (
           <div className="space-y-2 rounded-md border border-border/60 bg-background/40 p-2.5">
             <p className="text-sm font-semibold">{aiRecap.headline || `Night ${summaryNightNumber}:`}</p>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {aiRecap.events[0]?.title ?? "Night Event"}
-            </p>
-            <p className="text-sm leading-relaxed">{aiRecap.events[0]?.text ?? "No recap available."}</p>
+            {aiMeta?.source === "fallback" && (
+              <p className="text-xs text-amber-200">
+                Generated from guarded fallback ({aiMeta.reasons.join(", ") || "unknown reason"}).
+              </p>
+            )}
+            <div className="space-y-2">
+              {(aiRecap.events ?? []).map((event, index) => (
+                <div key={`ai-recap-event-${index}`} className="rounded-md border border-border/60 bg-background/50 p-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {event.title || `Night Event ${index + 1}`}
+                  </p>
+                  <p className="text-sm leading-relaxed">{event.text || "No recap available."}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {!aiError && !aiRecap && <p className="text-sm text-muted-foreground">Generate a narrated summary for moderator readout.</p>}
@@ -606,7 +661,9 @@ export function DayPhasePanel({
                 <p className="font-semibold">{player.name.trim() || "Unnamed"}</p>
                 <div className="flex gap-1">
                   {immune && <Badge variant="outline">Daytime Defense</Badge>}
-                  <Badge variant="secondary">{roleLabel(role)}</Badge>
+                  <Badge variant="outline" className={getAlignmentBadgeClass(role)}>
+                    {roleLabel(role)}
+                  </Badge>
                 </div>
               </div>
             </button>
@@ -630,7 +687,9 @@ export function DayPhasePanel({
                 )}
               >
                 <p className="font-semibold">{getPlayerName(id)}</p>
-                <p className="text-xs text-muted-foreground">{roleLabel(effectiveRoleByPlayer[id] ?? "Civilian")}</p>
+                <Badge variant="outline" className={cn("mt-1 text-xs", getAlignmentBadgeClass(effectiveRoleByPlayer[id] ?? "Civilian"))}>
+                  {roleLabel(effectiveRoleByPlayer[id] ?? "Civilian")}
+                </Badge>
               </button>
             ))}
           </div>
@@ -1110,8 +1169,8 @@ export function CurrentNightStepPanel({
           <div className="min-w-0 space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
             <div>
               <p className="text-base font-semibold">Role Assignment</p>
-              {isNight1 && <p className="text-xs text-muted-foreground">{getAssignmentPrompt(currentRole)}</p>}
-              {!isNight1 && <p className="text-xs text-muted-foreground">Assignments are locked after Night 1.</p>}
+              {isNight1 && <p className="text-sm text-muted-foreground">{getAssignmentPrompt(currentRole)}</p>}
+              {!isNight1 && <p className="text-sm text-muted-foreground">Assignments are locked after Night 1.</p>}
             </div>
 
             {(roleCounts[currentRole] ?? 0) > 0 ? (
@@ -1129,7 +1188,7 @@ export function CurrentNightStepPanel({
                   {magicianOutOfActions ? (
                     <div className="rounded-lg border border-border/70 bg-background/50 p-3">
                       <p className="text-sm font-medium">No actions remaining.</p>
-                      <p className="text-xs text-muted-foreground">Vanishing Act and Escape Trick have both been used.</p>
+                      <p className="text-sm text-muted-foreground">Vanishing Act and Escape Trick have both been used.</p>
                     </div>
                   ) : (
                     <select
@@ -1163,7 +1222,7 @@ export function CurrentNightStepPanel({
                     {abilityMeta(ability.activation.phase, ability.activation.type)}
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">{ability.description}</p>
+                <p className="text-sm text-muted-foreground">{ability.description}</p>
               </div>
             ))}
           </div>

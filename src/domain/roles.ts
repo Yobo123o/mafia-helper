@@ -126,11 +126,11 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     alignment: "Town",
     wakeOrder: WAKE_ORDER.indexOf("BusDriver"),
     action: { targetCount: 2 },
-    notes: "A chaos agent behind the wheel who can reroute the night by swapping where actions land.",
+    notes: "A chaos agent behind the wheel who swaps target destinations for actions, without swapping who performs those actions.",
     abilities: [
       {
         name: "Route Swap",
-        description: "Choose two players. All actions targeting one are redirected to the other.",
+        description: "Choose two players. Any action aimed at one is redirected to the other (and vice versa); the acting role does not change.",
         activation: { phase: "Night", type: "Active" },
       },
     ],

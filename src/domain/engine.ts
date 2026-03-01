@@ -260,7 +260,9 @@ function applyAbilityBlocksPhase(ctx: NightResolutionContext) {
 function applyProtectionPhase(input: ResolveNightInput, ctx: NightResolutionContext) {
   if (!ctx.blockedRoles.has("Doctor")) {
     const doctorTarget = ctx.roleTargets.Doctor?.[0];
-    if (isActionableTarget(doctorTarget) && !ctx.deadSet.has(doctorTarget)) {
+    const grandmaId = firstAliveForRole("Grandma", ctx.nextAssignments, ctx.deadSet);
+    const doctorVisitedAliveGrandma = Boolean(isActionableTarget(doctorTarget) && grandmaId && doctorTarget === grandmaId);
+    if (isActionableTarget(doctorTarget) && !ctx.deadSet.has(doctorTarget) && !doctorVisitedAliveGrandma) {
       ctx.protectedAtNight.add(doctorTarget);
       ctx.nextRoleStates.Doctor.lastSavedPlayerId = doctorTarget;
     }
@@ -297,11 +299,10 @@ function applyKillPhase(input: ResolveNightInput, ctx: NightResolutionContext) {
     if (ctx.deadSet.has(target)) continue;
 
     if (role === "Vigilante") {
-      if (input.nightNumber === 1 || input.roleStates.Vigilante.lockedOut || input.roleStates.Vigilante.usedShot) {
+      if (input.nightNumber === 1 || input.roleStates.Vigilante.lockedOut) {
         ctx.notes.push("Vigilante action was ignored due to role restrictions.");
         continue;
       }
-      ctx.nextRoleStates.Vigilante.usedShot = true;
     }
 
     const cause =
@@ -461,14 +462,17 @@ function applyPostInvestigationStateChanges(input: ResolveNightInput, ctx: Night
     }
   }
 
-  if (ctx.nextRoleStates.Vigilante.usedShot) {
-    const vigilanteTarget = ctx.roleTargets.Vigilante?.[0];
-    if (isActionableTarget(vigilanteTarget) && ctx.deaths.has(vigilanteTarget)) {
-      const role = ctx.playerRoles[vigilanteTarget];
-      if (role && getRoleAlignment(role) === "Town") {
-        ctx.nextRoleStates.Vigilante.pendingLockout = true;
-        ctx.notes.push("Vigilante killed a Town player and will be locked out next night.");
-      }
+  const vigilanteTarget = ctx.roleTargets.Vigilante?.[0];
+  if (
+    isActionableTarget(vigilanteTarget) &&
+    ctx.deaths.has(vigilanteTarget) &&
+    input.nightNumber > 1 &&
+    !input.roleStates.Vigilante.lockedOut
+  ) {
+    const role = ctx.playerRoles[vigilanteTarget];
+    if (role && getRoleAlignment(role) === "Town") {
+      ctx.nextRoleStates.Vigilante.pendingLockout = true;
+      ctx.notes.push("Vigilante killed a Town player and will be locked out next night.");
     }
   }
 }

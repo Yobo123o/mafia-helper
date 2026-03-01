@@ -147,7 +147,7 @@ The app uses internal role keys for logic, but some are presented with table-fri
   - `Shared Fate` (Passive): If one Lover dies, the other dies
 
 - **Bus Driver**
-  - `Route Swap` (Active, Night): Swap two players as targets for all actions
+  - `Route Swap` (Active, Night): Swap two players as targets for all actions; this changes where actions land, not who performs them
 
 - **Undercover Cop**
   - `Deep Cover` (Passive): Wakes with Mafia but is Town-aligned

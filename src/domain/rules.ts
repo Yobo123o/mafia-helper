@@ -97,9 +97,6 @@ export function validateAction(
     if (states.Vigilante.lockedOut) {
       return { valid: false, reason: "Vigilante is locked out after killing Town." };
     }
-    if (states.Vigilante.usedShot) {
-      return { valid: false, reason: "Vigilante already used their shot." };
-    }
   }
 
   if (role === "Doctor") {
